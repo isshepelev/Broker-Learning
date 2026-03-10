@@ -16,6 +16,7 @@ import java.util.concurrent.CompletableFuture;
 public class AtLeastOnceService {
 
     private final KafkaTemplate<String, String> kafkaTemplate;
+    private final manufacture.ru.brokerlearning.service.MessageHistoryService historyService;
 
     public Map<String, Object> demonstrate(int messageCount) {
         Map<String, Object> results = new HashMap<>();
@@ -28,6 +29,7 @@ public class AtLeastOnceService {
                 CompletableFuture<SendResult<String, String>> future =
                         kafkaTemplate.send("at-least-once-topic", message);
                 SendResult<String, String> result = future.get();
+                historyService.saveSentMessage("at-least-once-topic", null, message, null, null);
                 sent++;
                 confirmed++;
                 log.info("Sent and confirmed: {} -> partition={}, offset={}",

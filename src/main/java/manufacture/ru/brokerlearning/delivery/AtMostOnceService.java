@@ -14,6 +14,7 @@ import java.util.Map;
 public class AtMostOnceService {
 
     private final KafkaTemplate<String, String> kafkaTemplate;
+    private final manufacture.ru.brokerlearning.service.MessageHistoryService historyService;
 
     public Map<String, Object> demonstrate(int messageCount) {
         Map<String, Object> results = new HashMap<>();
@@ -21,8 +22,8 @@ public class AtMostOnceService {
 
         for (int i = 0; i < messageCount; i++) {
             String message = "at-most-once-message-" + i;
-            // Fire-and-forget: no confirmation waited, auto-commit on consumer side
             kafkaTemplate.send("at-most-once-topic", message);
+            historyService.saveSentMessage("at-most-once-topic", null, message, null, null);
             sent++;
             log.info("Sent (fire-and-forget): {}", message);
         }

@@ -13,10 +13,13 @@ import java.util.Map;
 public class ExactlyOnceService {
 
     private final KafkaTemplate<String, String> transactionalKafkaTemplate;
+    private final manufacture.ru.brokerlearning.service.MessageHistoryService historyService;
 
     public ExactlyOnceService(
-            @Qualifier("transactionalKafkaTemplate") KafkaTemplate<String, String> transactionalKafkaTemplate) {
+            @Qualifier("transactionalKafkaTemplate") KafkaTemplate<String, String> transactionalKafkaTemplate,
+            manufacture.ru.brokerlearning.service.MessageHistoryService historyService) {
         this.transactionalKafkaTemplate = transactionalKafkaTemplate;
+        this.historyService = historyService;
     }
 
     public Map<String, Object> demonstrate(int messageCount) {
@@ -27,6 +30,7 @@ public class ExactlyOnceService {
             for (int i = 0; i < messageCount; i++) {
                 String message = "exactly-once-message-" + i;
                 operations.send("exactly-once-topic", message);
+                historyService.saveSentMessage("exactly-once-topic", null, message, null, null);
                 count++;
                 log.info("Sent (transactional): {}", message);
             }
