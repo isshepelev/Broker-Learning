@@ -36,4 +36,14 @@ public class KafkaTopicConfig {
     public NewTopic compareTopic() {
         return new NewTopic("compare-topic", 1, (short) 1);
     }
+
+    @Bean
+    public NewTopic dlqCompareTopic() {
+        return new NewTopic("dlq-compare-topic", 1, (short) 1);
+    }
+
+    @Bean
+    public NewTopic dlqCompareTopicDlt() {
+        return new NewTopic("dlq-compare-topic.DLT", 1, (short) 1);
+    }
 }

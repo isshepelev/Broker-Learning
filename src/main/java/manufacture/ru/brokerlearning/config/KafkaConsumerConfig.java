@@ -1,8 +1,10 @@
 package manufacture.ru.brokerlearning.config;
 
+import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -12,15 +14,16 @@ import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.listener.ContainerProperties;
-import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.util.backoff.FixedBackOff;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.BiConsumer;
 
 @Configuration
 @EnableKafka
+@Slf4j
 public class KafkaConsumerConfig {
 
     @Value("${spring.kafka.bootstrap-servers}")
@@ -28,6 +31,13 @@ public class KafkaConsumerConfig {
 
     @Value("${spring.kafka.consumer.group-id:learning-group}")
     private String groupId;
+
+    // Callback для уведомления сервиса о DLT событиях
+    private volatile BiConsumer<ConsumerRecord<?, ?>, Exception> dltCallback;
+
+    public void setDltCallback(BiConsumer<ConsumerRecord<?, ?>, Exception> callback) {
+        this.dltCallback = callback;
+    }
 
     @Bean
     public ConsumerFactory<String, String> consumerFactory() {
@@ -81,12 +91,35 @@ public class KafkaConsumerConfig {
 
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, String> errorHandlingFactory(
-            KafkaTemplate<String, String> kafkaTemplate) {
+            @Qualifier("kafkaTemplate") KafkaTemplate<String, String> kafkaTemplate) {
         ConcurrentKafkaListenerContainerFactory<String, String> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory());
-        DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(kafkaTemplate);
-        DefaultErrorHandler errorHandler = new DefaultErrorHandler(recoverer, new FixedBackOff(1000L, 3));
+        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.RECORD);
+
+        // Custom recoverer: пробуем DLT publish + уведомляем сервис через callback
+        DefaultErrorHandler errorHandler = new DefaultErrorHandler(
+                (record, exception) -> {
+                    log.warn("DLT RECOVERER: all retries exhausted for topic={}, key={}, value={}, error={}",
+                            record.topic(), record.key(), record.value(), exception.getMessage());
+
+                    // Пробуем отправить в .DLT topic
+                    try {
+                        String dltTopic = record.topic() + ".DLT";
+                        kafkaTemplate.send(dltTopic, (String) record.key(), (String) record.value());
+                        kafkaTemplate.flush();
+                        log.warn("DLT RECOVERER: successfully published to {}", dltTopic);
+                    } catch (Exception e) {
+                        log.error("DLT RECOVERER: failed to publish to DLT topic", e);
+                    }
+
+                    // Уведомляем сервис через callback
+                    if (dltCallback != null) {
+                        dltCallback.accept(record, exception);
+                    }
+                },
+                new FixedBackOff(1000L, 3)
+        );
         factory.setCommonErrorHandler(errorHandler);
         return factory;
     }

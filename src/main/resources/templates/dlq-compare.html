@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Broker Learning - DLQ Compare')}"></head>
+<body>
+
+<nav th:replace="~{fragments/layout :: navbar}"></nav>
+
+<div class="container container-main">
+    <div class="page-header">
+        <h2>Dead Letter Queue: Kafka vs RabbitMQ</h2>
+        <p>Отправьте "плохое" сообщение в оба брокера и наблюдайте, как каждый обрабатывает ошибки.
+            Слова <code>poison</code>, <code>bad</code>, <code>error</code>, <code>fail</code>, <code>crash</code>, <code>broken</code> вызывают ошибку обработки.</p>
+    </div>
+
+    <!-- Схемы потоков бок о бок -->
+    <div class="row g-4 mb-4">
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header" style="background:linear-gradient(135deg,#f0fdf4,#fff);border-bottom:2px solid #86efac;">
+                    <h5 class="mb-0" style="font-size:1rem;color:#166534;">Kafka DLT (Dead Letter Topic)</h5>
+                </div>
+                <div class="card-body">
+                    <div class="dlq-flow">
+                        <div class="dlq-flow-step">
+                            <div class="dlq-flow-box dlq-box-kafka-send">Producer</div>
+                        </div>
+                        <div class="dlq-flow-arrow">&rarr;</div>
+                        <div class="dlq-flow-step">
+                            <div class="dlq-flow-box dlq-box-kafka-topic">Topic</div>
+                        </div>
+                        <div class="dlq-flow-arrow">&rarr;</div>
+                        <div class="dlq-flow-step">
+                            <div class="dlq-flow-box dlq-box-kafka-consumer">Consumer</div>
+                            <div class="dlq-flow-retry">&#8635; 3 retry (1 сек)</div>
+                        </div>
+                        <div class="dlq-flow-arrow">&rarr;</div>
+                        <div class="dlq-flow-step">
+                            <div class="dlq-flow-box dlq-box-kafka-dlt">DLT</div>
+                        </div>
+                    </div>
+                    <div class="dlq-flow-desc">
+                        <p><strong>Механизм:</strong> Spring Kafka <code>DefaultErrorHandler</code> перехватывает исключение, повторяет 3 раза с интервалом 1 сек.
+                            Если все попытки неудачны — <code>DeadLetterPublishingRecoverer</code> отправляет сообщение в topic с суффиксом <code>.DLT</code>.</p>
+                        <ul class="dlq-features">
+                            <li>Настраиваемое число retry и интервал</li>
+                            <li>Сообщение сохраняется в DLT topic навсегда</li>
+                            <li>Можно перечитать и переотправить</li>
+                            <li>Медленнее: retry занимают время</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header" style="background:linear-gradient(135deg,#fef3c7,#fff);border-bottom:2px solid #fcd34d;">
+                    <h5 class="mb-0" style="font-size:1rem;color:#92400e;">RabbitMQ DLX (Dead Letter Exchange)</h5>
+                </div>
+                <div class="card-body">
+                    <div class="dlq-flow">
+                        <div class="dlq-flow-step">
+                            <div class="dlq-flow-box dlq-box-rabbit-send">Producer</div>
+                        </div>
+                        <div class="dlq-flow-arrow">&rarr;</div>
+                        <div class="dlq-flow-step">
+                            <div class="dlq-flow-box dlq-box-rabbit-queue">Queue</div>
+                        </div>
+                        <div class="dlq-flow-arrow">&rarr;</div>
+                        <div class="dlq-flow-step">
+                            <div class="dlq-flow-box dlq-box-rabbit-consumer">Consumer</div>
+                            <div class="dlq-flow-retry" style="color:#dc2626;">reject (no requeue)</div>
+                        </div>
+                        <div class="dlq-flow-arrow">&rarr;</div>
+                        <div class="dlq-flow-step">
+                            <div class="dlq-flow-box dlq-box-rabbit-dlq">DLQ</div>
+                        </div>
+                    </div>
+                    <div class="dlq-flow-desc">
+                        <p><strong>Механизм:</strong> Consumer бросает <code>AmqpRejectAndDontRequeueException</code> — RabbitMQ мгновенно отправляет сообщение
+                            в Dead Letter Exchange (DLX), откуда оно попадает в Dead Letter Queue.</p>
+                        <ul class="dlq-features">
+                            <li>Мгновенный reject без retry</li>
+                            <li>Сообщение удаляется из основной очереди</li>
+                            <li>DLX + routing rules = гибкая маршрутизация ошибок</li>
+                            <li>Быстрее: нет ожидания retry</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Отправка -->
+    <div class="card mb-4">
+        <div class="card-body py-3">
+            <div class="d-flex align-items-center gap-3 flex-wrap">
+                <input type="text" class="form-control" id="msgInput" placeholder="Введите сообщение (слова poison/bad/error/fail/crash вызовут ошибку)..." style="flex:1;min-width:200px;">
+                <button class="btn btn-primary-custom" onclick="doSend()">Отправить в оба</button>
+                <button class="btn btn-outline-danger" onclick="doSendBad()">Отправить poison</button>
+                <button class="btn btn-outline-secondary" onclick="doClear()">Очистить</button>
+            </div>
+            <div id="alertArea" class="mt-3" style="display:none;"></div>
+        </div>
+    </div>
+
+    <!-- Event logs бок о бок -->
+    <div class="row g-4 mb-4">
+        <!-- Kafka events -->
+        <div class="col-lg-6">
+            <div class="card h-100 dlq-card-kafka">
+                <div class="card-header d-flex justify-content-between align-items-center" style="background:linear-gradient(135deg,#f0fdf4,#fff);border-bottom:2px solid #86efac;">
+                    <h5 class="mb-0" style="font-size:1rem;color:#166534;">Kafka — лог событий</h5>
+                    <span class="badge" style="background:#dcfce7;color:#166534;" id="kafkaBadge">0</span>
+                </div>
+                <div class="card-body p-0">
+                    <div id="kafkaEmpty" class="p-4 text-center">
+                        <p class="text-muted mb-0">Отправьте сообщение...</p>
+                    </div>
+                    <div id="kafkaWrap" style="max-height:450px;overflow-y:auto;display:none;padding:.75rem;">
+                        <div id="kafkaLog"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- RabbitMQ events -->
+        <div class="col-lg-6">
+            <div class="card h-100 dlq-card-rabbit">
+                <div class="card-header d-flex justify-content-between align-items-center" style="background:linear-gradient(135deg,#fef3c7,#fff);border-bottom:2px solid #fcd34d;">
+                    <h5 class="mb-0" style="font-size:1rem;color:#92400e;">RabbitMQ — лог событий</h5>
+                    <span class="badge" style="background:#fef3c7;color:#92400e;" id="rabbitBadge">0</span>
+                </div>
+                <div class="card-body p-0">
+                    <div id="rabbitEmpty" class="p-4 text-center">
+                        <p class="text-muted mb-0">Отправьте сообщение...</p>
+                    </div>
+                    <div id="rabbitWrap" style="max-height:450px;overflow-y:auto;display:none;padding:.75rem;">
+                        <div id="rabbitLog"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Кладбище сообщений -->
+    <div class="row g-4 mb-4">
+        <div class="col-lg-6">
+            <div class="card h-100 dlq-card-kafka">
+                <div class="card-header d-flex justify-content-between align-items-center" style="background:linear-gradient(135deg,#fef2f2,#fff);border-bottom:2px solid #fca5a5;">
+                    <h5 class="mb-0" style="font-size:1rem;color:#991b1b;">Kafka DLT — «мёртвые» сообщения</h5>
+                    <span class="badge" style="background:#fee2e2;color:#991b1b;" id="kafkaDeadBadge">0</span>
+                </div>
+                <div class="card-body p-0">
+                    <div id="kafkaDeadEmpty" class="p-4 text-center">
+                        <p class="text-muted mb-0">Пока нет сообщений в DLT</p>
+                    </div>
+                    <div id="kafkaDeadWrap" style="max-height:300px;overflow-y:auto;display:none;">
+                        <table class="table table-sm mb-0" style="font-size:.8rem;">
+                            <thead><tr><th>Время</th><th>Сообщение</th></tr></thead>
+                            <tbody id="kafkaDeadBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card h-100 dlq-card-rabbit">
+                <div class="card-header d-flex justify-content-between align-items-center" style="background:linear-gradient(135deg,#fef2f2,#fff);border-bottom:2px solid #fca5a5;">
+                    <h5 class="mb-0" style="font-size:1rem;color:#991b1b;">RabbitMQ DLQ — «мёртвые» сообщения</h5>
+                    <span class="badge" style="background:#fee2e2;color:#991b1b;" id="rabbitDeadBadge">0</span>
+                </div>
+                <div class="card-body p-0">
+                    <div id="rabbitDeadEmpty" class="p-4 text-center">
+                        <p class="text-muted mb-0">Пока нет сообщений в DLQ</p>
+                    </div>
+                    <div id="rabbitDeadWrap" style="max-height:300px;overflow-y:auto;display:none;">
+                        <table class="table table-sm mb-0" style="font-size:.8rem;">
+                            <thead><tr><th>Время</th><th>Сообщение</th></tr></thead>
+                            <tbody id="rabbitDeadBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Сравнение -->
+    <div class="card">
+        <div class="card-header bg-white"><h5 class="mb-0" style="font-size:1rem;">Ключевые отличия обработки ошибок</h5></div>
+        <div class="card-body p-0">
+            <table class="table table-hover mb-0" style="font-size:.85rem;">
+                <thead><tr><th style="width:30%;">Параметр</th><th style="width:35%;">Kafka DLT</th><th style="width:35%;">RabbitMQ DLX</th></tr></thead>
+                <tbody>
+                <tr><td><strong>Retry</strong></td><td>Настраиваемый (3 retry × 1 сек)</td><td>Нет retry — мгновенный reject</td></tr>
+                <tr><td><strong>Скорость</strong></td><td>~3-4 сек до DLT</td><td class="dlq-hl-rabbit">Мгновенно в DLQ</td></tr>
+                <tr><td><strong>Хранение ошибок</strong></td><td class="dlq-hl-kafka">В DLT topic — можно перечитать</td><td>В DLQ — удалится после чтения</td></tr>
+                <tr><td><strong>Routing ошибок</strong></td><td>Суффикс .DLT к имени topic</td><td class="dlq-hl-rabbit">Гибкий через DLX exchange</td></tr>
+                <tr><td><strong>Конфигурация</strong></td><td>DefaultErrorHandler + BackOff</td><td>x-dead-letter-exchange на queue</td></tr>
+                <tr><td><strong>Переотправка</strong></td><td class="dlq-hl-kafka">Да — consumer перечитывает DLT</td><td>Да — но нужно вручную</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div th:replace="~{fragments/layout :: scripts}"></div>
+
+<style>
+    .dlq-flow {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        margin-bottom: 16px;
+    }
+    .dlq-flow-step { text-align: center; position: relative; }
+    .dlq-flow-box {
+        padding: 10px 16px;
+        border-radius: 10px;
+        font-size: .82rem;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+    .dlq-flow-arrow { font-size: 1.2rem; color: var(--c-text-muted); }
+    .dlq-flow-retry {
+        font-size: .68rem;
+        font-weight: 600;
+        color: #f59e0b;
+        margin-top: 4px;
+    }
+
+    .dlq-box-kafka-send { background: #dcfce7; color: #166534; }
+    .dlq-box-kafka-topic { background: #e0f2fe; color: #0369a1; }
+    .dlq-box-kafka-consumer { background: #f3e8ff; color: #7c3aed; }
+    .dlq-box-kafka-dlt { background: #fee2e2; color: #991b1b; }
+
+    .dlq-box-rabbit-send { background: #fef3c7; color: #92400e; }
+    .dlq-box-rabbit-queue { background: #fed7aa; color: #9a3412; }
+    .dlq-box-rabbit-consumer { background: #fce7f3; color: #be185d; }
+    .dlq-box-rabbit-dlq { background: #fee2e2; color: #991b1b; }
+
+    .dlq-flow-desc { font-size: .82rem; color: var(--c-text-secondary); }
+    .dlq-flow-desc p { margin-bottom: 8px; }
+    .dlq-features {
+        padding-left: 18px; margin: 0;
+    }
+    .dlq-features li {
+        padding: 2px 0;
+        font-size: .8rem;
+    }
+
+    .dlq-card-kafka { border-color: #86efac; }
+    .dlq-card-rabbit { border-color: #fcd34d; }
+
+    .dlq-hl-kafka { background: rgba(34,197,94,.06); color: #166534; font-weight: 600; }
+    .dlq-hl-rabbit { background: rgba(245,158,11,.06); color: #92400e; font-weight: 600; }
+
+    .dlq-event {
+        padding: 8px 12px;
+        margin-bottom: 6px;
+        border-radius: 8px;
+        font-size: .8rem;
+        border-left: 3px solid;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+    .dlq-event-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .dlq-event-time {
+        font-size: .72rem;
+        color: var(--c-text-muted);
+        font-family: 'SF Mono', Consolas, monospace;
+    }
+    .dlq-event-badge {
+        padding: 1px 8px;
+        border-radius: 4px;
+        font-size: .7rem;
+        font-weight: 700;
+        letter-spacing: .3px;
+    }
+    .dlq-event-value {
+        font-family: 'SF Mono', Consolas, monospace;
+        font-size: .78rem;
+        font-weight: 600;
+    }
+    .dlq-event-desc {
+        font-size: .75rem;
+        color: var(--c-text-muted);
+    }
+
+    .dlq-ev-sent { background: rgba(59,130,246,.04); border-left-color: #3b82f6; }
+    .dlq-ev-ok { background: rgba(34,197,94,.04); border-left-color: #22c55e; }
+    .dlq-ev-retry { background: rgba(245,158,11,.04); border-left-color: #f59e0b; }
+    .dlq-ev-fail { background: rgba(239,68,68,.04); border-left-color: #ef4444; }
+    .dlq-ev-dlt { background: rgba(127,29,29,.06); border-left-color: #991b1b; }
+
+    .dlq-badge-sent { background: #dbeafe; color: #1d4ed8; }
+    .dlq-badge-ok { background: #dcfce7; color: #166534; }
+    .dlq-badge-retry { background: #fef3c7; color: #92400e; }
+    .dlq-badge-fail { background: #fee2e2; color: #991b1b; }
+    .dlq-badge-dlt { background: #991b1b; color: #fff; }
+    .dlq-badge-dlq { background: #991b1b; color: #fff; }
+
+    .dlq-dead-row td:first-child {
+        font-family: 'SF Mono', Consolas, monospace;
+        font-size: .75rem;
+        color: var(--c-text-muted);
+        white-space: nowrap;
+    }
+    .dlq-dead-row td:last-child {
+        font-family: 'SF Mono', Consolas, monospace;
+        font-weight: 600;
+        color: #991b1b;
+    }
+</style>
+
+<script>
+    let lastJson = '';
+
+    async function doSend() {
+        const input = document.getElementById('msgInput');
+        const msg = input.value.trim();
+        if (!msg) { showAlert('danger', 'Введите сообщение'); return; }
+        await sendMessage(msg);
+        input.value = '';
+    }
+
+    async function doSendBad() {
+        await sendMessage('POISON: corrupted data ' + Date.now());
+    }
+
+    async function sendMessage(msg) {
+        try {
+            const resp = await fetch('/dlq-compare/send', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({message: msg})
+            });
+            const data = await resp.json();
+            if (data.success) {
+                showAlert('success', 'Отправлено в Kafka и RabbitMQ: <strong>' + msg + '</strong>');
+                lastJson = '';
+                setTimeout(refresh, 500);
+                // Для Kafka — retry занимают ~3-4 сек, обновляем несколько раз
+                setTimeout(refresh, 2000);
+                setTimeout(refresh, 4000);
+                setTimeout(refresh, 6000);
+            } else {
+                showAlert('danger', data.error);
+            }
+        } catch (e) { showAlert('danger', e.message); }
+    }
+
+    async function doClear() {
+        await fetch('/dlq-compare/clear', {method: 'POST'});
+        lastJson = '';
+        refresh();
+    }
+
+    function showAlert(type, msg) {
+        const a = document.getElementById('alertArea');
+        a.innerHTML = '<div class="alert alert-' + type + ' py-2 mb-0" style="font-size:.85rem;">' + msg + '</div>';
+        a.style.display = '';
+        setTimeout(function() { a.style.display = 'none'; }, 3500);
+    }
+
+    function statusClass(status) {
+        switch(status) {
+            case 'SENT': return 'sent';
+            case 'OK': return 'ok';
+            case 'RETRY': return 'retry';
+            case 'FAIL': return 'fail';
+            case 'DLT': return 'dlt';
+            case 'DLQ': return 'dlt';
+            default: return 'sent';
+        }
+    }
+
+    function renderEvents(events, logId, emptyId, wrapId, badgeId) {
+        document.getElementById(badgeId).textContent = events.length;
+        if (events.length > 0) {
+            document.getElementById(emptyId).style.display = 'none';
+            document.getElementById(wrapId).style.display = '';
+            const log = document.getElementById(logId);
+            log.innerHTML = '';
+            events.forEach(function(ev) {
+                const cls = statusClass(ev.status);
+                const div = document.createElement('div');
+                div.className = 'dlq-event dlq-ev-' + cls;
+                div.innerHTML =
+                    '<div class="dlq-event-header">'
+                    + '<span class="dlq-event-time">' + ev.time + '</span>'
+                    + '<span class="dlq-event-badge dlq-badge-' + cls + '">' + ev.status + '</span>'
+                    + '<span class="dlq-event-value">' + ev.value + '</span>'
+                    + '</div>'
+                    + '<div class="dlq-event-desc">' + ev.desc + '</div>';
+                log.appendChild(div);
+            });
+        } else {
+            document.getElementById(emptyId).style.display = '';
+            document.getElementById(wrapId).style.display = 'none';
+        }
+    }
+
+    function renderDead(items, bodyId, emptyId, wrapId, badgeId) {
+        document.getElementById(badgeId).textContent = items.length;
+        if (items.length > 0) {
+            document.getElementById(emptyId).style.display = 'none';
+            document.getElementById(wrapId).style.display = '';
+            const body = document.getElementById(bodyId);
+            body.innerHTML = '';
+            items.forEach(function(item) {
+                const tr = document.createElement('tr');
+                tr.className = 'dlq-dead-row';
+                tr.innerHTML = '<td>' + item.time + '</td><td>' + item.value + '</td>';
+                body.appendChild(tr);
+            });
+        } else {
+            document.getElementById(emptyId).style.display = '';
+            document.getElementById(wrapId).style.display = 'none';
+        }
+    }
+
+    async function refresh() {
+        try {
+            const resp = await fetch('/dlq-compare/status');
+            const data = await resp.json();
+            const json = JSON.stringify(data);
+            if (json === lastJson) return;
+            lastJson = json;
+
+            renderEvents(data.kafkaEvents || [], 'kafkaLog', 'kafkaEmpty', 'kafkaWrap', 'kafkaBadge');
+            renderEvents(data.rabbitEvents || [], 'rabbitLog', 'rabbitEmpty', 'rabbitWrap', 'rabbitBadge');
+            renderDead(data.kafkaDead || [], 'kafkaDeadBody', 'kafkaDeadEmpty', 'kafkaDeadWrap', 'kafkaDeadBadge');
+            renderDead(data.rabbitDead || [], 'rabbitDeadBody', 'rabbitDeadEmpty', 'rabbitDeadWrap', 'rabbitDeadBadge');
+        } catch (e) { console.error(e); }
+    }
+
+    document.getElementById('msgInput').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') doSend();
+    });
+
+    refresh();
+    setInterval(refresh, 2000);
+</script>
+</body>
+</html>
