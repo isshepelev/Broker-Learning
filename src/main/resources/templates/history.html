@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Broker Learning - История')}"></head>
+<body>
+
+<nav th:replace="~{fragments/layout :: navbar}"></nav>
+
+<div class="container container-main">
+    <div class="page-header">
+        <h2>История сообщений</h2>
+        <p>Просматривайте все записанные Kafka-сообщения -- как отправленные, так и полученные. Используйте поиск и фильтры для навигации.</p>
+    </div>
+
+    <!-- Поиск и фильтр -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-6">
+                    <label for="searchInput" class="form-label fw-semibold">Поиск</label>
+                    <input type="text" class="form-control" id="searchInput" placeholder="Фильтр по topic, key, value, направлению..." oninput="filterTable()">
+                </div>
+                <div class="col-md-3">
+                    <label for="directionFilter" class="form-label fw-semibold">Направление</label>
+                    <select class="form-select" id="directionFilter" onchange="filterTable()">
+                        <option value="">Все</option>
+                        <option value="SENT">Отправлено</option>
+                        <option value="RECEIVED">Получено</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <button class="btn btn-outline-secondary w-100" onclick="clearFilters()">Сбросить фильтры</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Таблица сообщений -->
+    <div class="card">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">Все сообщения</h5>
+            <small class="text-muted" id="rowCount"></small>
+        </div>
+        <div class="card-body p-0">
+            <div th:if="${messages == null or messages.isEmpty()}" class="p-4 text-center">
+                <p class="text-muted mb-0">Сообщений пока нет. Отправьте что-нибудь через Producer или запустите scheduled job-ы.</p>
+            </div>
+            <div th:unless="${messages == null or messages.isEmpty()}" class="table-responsive">
+                <table class="table table-hover table-sm mb-0" id="historyTable">
+                    <thead style="position: sticky; top: 0;">
+                    <tr>
+                        <th>ID</th>
+                        <th>Topic</th>
+                        <th>Key</th>
+                        <th>Value</th>
+                        <th>Направление</th>
+                        <th>Partition</th>
+                        <th>Offset</th>
+                        <th>Время</th>
+                    </tr>
+                    </thead>
+                    <tbody id="historyBody">
+                    <tr th:each="msg : ${messages}" class="history-row">
+                        <td class="text-muted" th:text="${msg.id}">1</td>
+                        <td><span class="badge badge-topic" th:text="${msg.topic}">topic</span></td>
+                        <td class="text-muted" th:text="${msg.messageKey != null ? msg.messageKey : '-'}">key</td>
+                        <td>
+                            <span th:title="${msg.messageValue}"
+                                  th:text="${msg.messageValue != null and msg.messageValue.length() > 60 ? msg.messageValue.substring(0, 60) + '...' : (msg.messageValue != null ? msg.messageValue : '-')}">value</span>
+                        </td>
+                        <td>
+                            <span class="badge"
+                                  th:classappend="${msg.direction == 'SENT' ? 'bg-primary' : 'bg-success'}"
+                                  th:text="${msg.direction == 'SENT' ? 'Отправлено' : 'Получено'}">Отправлено</span>
+                        </td>
+                        <td th:text="${msg.partitionNum != null ? msg.partitionNum : '-'}">0</td>
+                        <td th:text="${msg.offsetNum != null ? msg.offsetNum : '-'}">0</td>
+                        <td class="text-muted" th:text="${msg.timestamp}">2024-01-01</td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div th:replace="~{fragments/layout :: scripts}"></div>
+
+<script>
+    function filterTable() {
+        const searchText = document.getElementById('searchInput').value.toLowerCase();
+        const directionFilter = document.getElementById('directionFilter').value;
+        const rows = document.querySelectorAll('.history-row');
+        let visibleCount = 0;
+
+        rows.forEach(function(row) {
+            const text = row.textContent.toLowerCase();
+            const matchesSearch = !searchText || text.includes(searchText);
+
+            let matchesDirection = true;
+            if (directionFilter) {
+                const directionCell = row.querySelector('td:nth-child(5)');
+                matchesDirection = directionCell && directionCell.textContent.trim().includes(directionFilter === 'SENT' ? 'Отправлено' : 'Получено');
+            }
+
+            if (matchesSearch && matchesDirection) {
+                row.style.display = '';
+                visibleCount++;
+            } else {
+                row.style.display = 'none';
+            }
+        });
+
+        document.getElementById('rowCount').textContent = 'Показано ' + visibleCount + ' из ' + rows.length;
+    }
+
+    function clearFilters() {
+        document.getElementById('searchInput').value = '';
+        document.getElementById('directionFilter').value = '';
+        filterTable();
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        const rows = document.querySelectorAll('.history-row');
+        document.getElementById('rowCount').textContent = 'Показано ' + rows.length + ' из ' + rows.length;
+    });
+</script>
+</body>
+</html>

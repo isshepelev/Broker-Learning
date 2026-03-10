@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Broker Learning - Consumer Groups')}"></head>
+<body>
+
+<nav th:replace="~{fragments/layout :: navbar}"></nav>
+
+<div class="container container-main">
+    <div class="page-header">
+        <h2>Consumer Groups</h2>
+        <p>Узнайте, как Kafka организует consumer-ов в группы для параллельной обработки и отказоустойчивости.</p>
+    </div>
+
+    <div class="theory-section">
+        <h5>Что такое Consumer Group?</h5>
+        <p><strong>Consumer group</strong> -- это набор consumer-ов, которые совместно обрабатывают данные из topic-ов. Каждый partition назначается ровно одному consumer-у в группе, что обеспечивает параллелизм. Если consumer выходит из строя, Kafka <strong>перебалансирует</strong> его partition-ы между оставшимися участниками группы.</p>
+    </div>
+
+    <div class="row g-4 mb-4">
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0">Назначение Partition-ов</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted">При присоединении consumer-ов к группе Kafka распределяет partition-ы между ними:</p>
+                    <ul class="text-muted">
+                        <li>Каждый partition обрабатывается ровно <strong>одним</strong> consumer-ом в группе</li>
+                        <li>Один consumer может обрабатывать несколько partition-ов</li>
+                        <li>Если consumer-ов больше, чем partition-ов, часть consumer-ов будет простаивать</li>
+                        <li>Для максимального параллелизма число consumer-ов должно быть равно числу partition-ов</li>
+                    </ul>
+                    <p class="text-muted mb-0"><strong>Совет:</strong> несколько consumer group-ов могут независимо читать из одного topic-а. Каждая группа отслеживает свои offset-ы.</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0">Rebalancing</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted">Rebalancing происходит при изменении состава группы:</p>
+                    <ul class="text-muted">
+                        <li><strong>Новый consumer присоединяется:</strong> partition-ы перераспределяются</li>
+                        <li><strong>Consumer уходит или падает:</strong> его partition-ы переназначаются</li>
+                        <li><strong>Добавлены новые partition-ы:</strong> запускается rebalancing</li>
+                    </ul>
+                    <h6 class="fw-semibold mt-3">Стратегии Rebalancing-а</h6>
+                    <ul class="text-muted mb-0">
+                        <li><strong>Eager (по умолчанию):</strong> все consumer-ы отдают все partition-ы и заново присоединяются. Кратковременная остановка обработки.</li>
+                        <li><strong>Cooperative (инкрементальный):</strong> только затронутые partition-ы перераспределяются. Минимизирует простой.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Список Consumer Groups -->
+    <div class="card mb-4">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">Consumer Groups в кластере</h5>
+            <button class="btn btn-sm btn-outline-indigo" onclick="location.reload()">Обновить</button>
+        </div>
+        <div class="card-body p-0">
+            <div th:if="${consumerGroups == null or consumerGroups.isEmpty()}" class="p-4 text-center">
+                <p class="text-muted mb-0">Consumer group-ов не найдено. Они создаются автоматически, когда consumer-ы подписываются на topic-и.</p>
+            </div>
+            <div th:unless="${consumerGroups == null or consumerGroups.isEmpty()}">
+                <ul class="list-group list-group-flush">
+                    <li th:each="group : ${consumerGroups}" class="list-group-item d-flex justify-content-between align-items-center">
+                        <strong th:text="${group}">group-id</strong>
+                        <span class="badge badge-topic">Consumer Group</span>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Управление Offset-ами -->
+    <div class="card">
+        <div class="card-header bg-white">
+            <h5 class="mb-0">Управление Offset-ами</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <h6 class="fw-semibold">Автоматический коммит Offset</h6>
+                    <p class="text-muted">С <code>enable.auto.commit=true</code> offset-ы коммитятся автоматически через интервал <code>auto.commit.interval.ms</code>. Просто в использовании, но может привести к потере данных (at-most-once), если consumer упадёт до обработки сообщения, чей offset уже зафиксирован.</p>
+                </div>
+                <div class="col-md-6">
+                    <h6 class="fw-semibold">Ручной коммит Offset</h6>
+                    <p class="text-muted">С <code>enable.auto.commit=false</code> приложение явно коммитит offset-ы после успешной обработки. Это обеспечивает at-least-once доставку. Используйте <code>commitSync()</code> для блокирующего коммита или <code>commitAsync()</code> для неблокирующего.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div th:replace="~{fragments/layout :: scripts}"></div>
+</body>
+</html>

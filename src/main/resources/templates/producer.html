@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Broker Learning - Producer')}"></head>
+<body>
+
+<nav th:replace="~{fragments/layout :: navbar}"></nav>
+
+<div class="container container-main">
+    <div class="page-header">
+        <h2>Producer</h2>
+        <p>Отправляйте сообщения в Kafka topic-и, используя различные стратегии: fire-and-forget, синхронную, с callback или транзакционную.</p>
+    </div>
+
+    <div class="theory-section">
+        <h5>Режимы отправки сообщений</h5>
+        <p><strong>Fire-and-Forget:</strong> сообщение отправляется без ожидания подтверждения. Максимальная скорость, но возможна потеря.<br>
+            <strong>Синхронный:</strong> producer ждёт подтверждения от broker-а. Гарантирует доставку, но увеличивает latency.<br>
+            <strong>Callback:</strong> асинхронная отправка с уведомлением об успехе/ошибке. Баланс скорости и надёжности.<br>
+            <strong>Транзакционный:</strong> отправка внутри Kafka-транзакции. Обеспечивает exactly-once семантику.</p>
+    </div>
+
+    <div class="row g-4">
+        <!-- Форма отправки -->
+        <div class="col-lg-7">
+            <div class="card">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0">Отправить сообщение</h5>
+                </div>
+                <div class="card-body">
+                    <form id="sendForm">
+                        <div class="mb-3">
+                            <label for="topicSelect" class="form-label fw-semibold">Topic</label>
+                            <div class="input-group">
+                                <select class="form-select" id="topicSelect" onchange="onTopicSelectChange()">
+                                    <option value="">-- Выберите topic --</option>
+                                    <option th:each="t : ${topics}" th:value="${t}" th:text="${t}">topic</option>
+                                    <option value="__custom__">Ввести вручную...</option>
+                                </select>
+                                <input type="text" class="form-control d-none" id="topicCustom" placeholder="Название topic-а">
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="key" class="form-label fw-semibold">Key <span class="text-muted fw-normal">(необязательно)</span></label>
+                            <input type="text" class="form-control" id="key" placeholder="Ключ сообщения">
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="value" class="form-label fw-semibold">Value</label>
+                            <textarea class="form-control" id="value" rows="4" placeholder='{"message": "Привет, Kafka!"}'></textarea>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="partition" class="form-label fw-semibold">Partition <span class="text-muted fw-normal">(необязательно)</span></label>
+                            <input type="number" class="form-control" id="partition" min="0" placeholder="Авто (по хешу ключа)">
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Режим отправки</label>
+                            <div class="d-flex flex-wrap gap-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="sendMode" id="modeFireForget" value="fire-and-forget" checked>
+                                    <label class="form-check-label" for="modeFireForget">Fire-and-Forget</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="sendMode" id="modeSync" value="sync">
+                                    <label class="form-check-label" for="modeSync">Синхронный</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="sendMode" id="modeCallback" value="callback">
+                                    <label class="form-check-label" for="modeCallback">Callback</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="sendMode" id="modeTransactional" value="transactional">
+                                    <label class="form-check-label" for="modeTransactional">Транзакционный</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Headers <span class="text-muted fw-normal">(необязательно)</span></label>
+                            <div id="headersContainer"></div>
+                            <button type="button" class="btn btn-sm btn-outline-secondary mt-2" onclick="addHeaderRow()">+ Добавить header</button>
+                        </div>
+
+                        <button type="submit" class="btn btn-indigo w-100" id="sendBtn">Отправить сообщение</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Результат -->
+        <div class="col-lg-5">
+            <div class="card">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0">Результат отправки</h5>
+                </div>
+                <div class="card-body">
+                    <div id="resultArea" class="result-area text-muted">Здесь появится результат после отправки сообщения...</div>
+                </div>
+            </div>
+
+            <div class="card mt-4">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0">История отправок (сессия)</h5>
+                </div>
+                <div class="card-body p-0">
+                    <div id="sendHistory" class="p-3">
+                        <p class="text-muted mb-0">Отправленные сообщения за текущую сессию появятся здесь.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div th:replace="~{fragments/layout :: scripts}"></div>
+
+<script>
+    let sendHistoryItems = [];
+
+    function onTopicSelectChange() {
+        const select = document.getElementById('topicSelect');
+        const custom = document.getElementById('topicCustom');
+        if (select.value === '__custom__') {
+            custom.classList.remove('d-none');
+            custom.focus();
+        } else {
+            custom.classList.add('d-none');
+            custom.value = '';
+        }
+    }
+
+    function getSelectedTopic() {
+        const select = document.getElementById('topicSelect');
+        if (select.value === '__custom__') return document.getElementById('topicCustom').value.trim();
+        return select.value;
+    }
+
+    function addHeaderRow() {
+        const container = document.getElementById('headersContainer');
+        const row = document.createElement('div');
+        row.className = 'input-group mb-2';
+        row.innerHTML = `
+            <input type="text" class="form-control header-key" placeholder="Ключ header-а">
+            <input type="text" class="form-control header-value" placeholder="Значение">
+            <button type="button" class="btn btn-outline-danger" onclick="this.parentElement.remove()">X</button>
+        `;
+        container.appendChild(row);
+    }
+
+    function collectHeaders() {
+        const headers = {};
+        const keys = document.querySelectorAll('.header-key');
+        const values = document.querySelectorAll('.header-value');
+        keys.forEach((keyEl, i) => {
+            const k = keyEl.value.trim();
+            const v = values[i] ? values[i].value.trim() : '';
+            if (k) headers[k] = v;
+        });
+        return Object.keys(headers).length > 0 ? headers : null;
+    }
+
+    document.getElementById('sendForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+
+        const topic = getSelectedTopic();
+        if (!topic) { alert('Выберите или введите название topic-а.'); return; }
+
+        const value = document.getElementById('value').value.trim();
+        if (!value) { alert('Введите значение сообщения.'); return; }
+
+        const sendMode = document.querySelector('input[name="sendMode"]:checked').value;
+        const partitionVal = document.getElementById('partition').value;
+
+        const payload = {
+            topic: topic,
+            key: document.getElementById('key').value.trim() || null,
+            value: value,
+            partition: partitionVal ? parseInt(partitionVal) : null,
+            headers: collectHeaders(),
+            sendMode: sendMode
+        };
+
+        const resultArea = document.getElementById('resultArea');
+        const sendBtn = document.getElementById('sendBtn');
+
+        sendBtn.disabled = true;
+        sendBtn.textContent = 'Отправка...';
+        resultArea.textContent = 'Отправка сообщения...';
+        resultArea.className = 'result-area text-muted';
+
+        try {
+            const response = await fetch('/producer/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                resultArea.textContent = 'УСПЕШНО\n\n' + (data.details || 'Сообщение отправлено.');
+                resultArea.className = 'result-area text-success';
+                addToHistory(payload);
+            } else {
+                resultArea.textContent = 'ОШИБКА\n\n' + (data.details || 'Неизвестная ошибка.');
+                resultArea.className = 'result-area text-danger';
+            }
+        } catch (err) {
+            resultArea.textContent = 'ОШИБКА\n\n' + err.message;
+            resultArea.className = 'result-area text-danger';
+        } finally {
+            sendBtn.disabled = false;
+            sendBtn.textContent = 'Отправить сообщение';
+        }
+    });
+
+    function addToHistory(payload) {
+        sendHistoryItems.unshift(payload);
+        const container = document.getElementById('sendHistory');
+        const truncVal = payload.value.length > 50 ? payload.value.substring(0, 50) + '...' : payload.value;
+        const item = document.createElement('div');
+        item.className = 'sse-message';
+        item.innerHTML = `
+            <small class="text-muted">${new Date().toLocaleTimeString()}</small>
+            <strong class="ms-2">${payload.topic}</strong>
+            <span class="badge bg-primary ms-2">${payload.sendMode}</span><br>
+            <small>Key: ${payload.key || '-'} | Value: ${truncVal}</small>
+        `;
+        if (sendHistoryItems.length === 1) container.innerHTML = '';
+        container.prepend(item);
+        while (container.children.length > 20) container.removeChild(container.lastChild);
+    }
+</script>
+</body>
+</html>

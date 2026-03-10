@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Broker Learning - Topic')}"></head>
+<body>
+
+<nav th:replace="~{fragments/layout :: navbar}"></nav>
+
+<div class="container container-main">
+    <a href="/topics" th:href="@{/topics}" class="btn btn-outline-indigo btn-sm mb-3">&larr; Назад к Topics</a>
+
+    <div th:if="${topicInfo == null}" class="card">
+        <div class="card-body text-center py-5">
+            <h4 class="text-muted">Topic не найден или Kafka недоступна.</h4>
+            <p class="text-muted">Topic мог быть удалён или кластер Kafka недоступен.</p>
+            <a href="/topics" th:href="@{/topics}" class="btn btn-indigo mt-2">Назад к Topics</a>
+        </div>
+    </div>
+
+    <div th:if="${topicInfo != null}">
+        <div class="page-header" style="text-align: left;">
+            <h2 th:text="'Topic: ' + ${topicInfo.name}">Topic: my-topic</h2>
+            <p>Подробная информация и конфигурация topic-а.</p>
+        </div>
+
+        <div class="row g-4 mb-4">
+            <div class="col-md-4">
+                <div class="card stat-card p-3">
+                    <div class="stat-label">Название</div>
+                    <div class="stat-value" style="font-size: 1.2rem;" th:text="${topicInfo.name}">my-topic</div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card stat-card p-3">
+                    <div class="stat-label">Partition-ов</div>
+                    <div class="stat-value" th:text="${topicInfo.partitions}">1</div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card stat-card p-3">
+                    <div class="stat-label">Replication Factor</div>
+                    <div class="stat-value" th:text="${topicInfo.replicationFactor}">1</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header bg-white">
+                <h5 class="mb-0">Конфигурация Topic-а</h5>
+            </div>
+            <div class="card-body p-0">
+                <div th:if="${configs == null or configs.isEmpty()}" class="p-4 text-center">
+                    <p class="text-muted mb-0">Записей конфигурации не найдено.</p>
+                </div>
+                <div th:unless="${configs == null or configs.isEmpty()}" class="table-responsive">
+                    <table class="table table-hover table-sm mb-0">
+                        <thead>
+                        <tr>
+                            <th>Ключ конфигурации</th>
+                            <th>Значение</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <tr th:each="entry : ${configs}">
+                            <td class="fw-semibold" th:text="${entry.key}">key</td>
+                            <td class="text-muted" th:text="${entry.value != '' ? entry.value : '(по умолчанию)'}">value</td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div th:replace="~{fragments/layout :: scripts}"></div>
+</body>
+</html>
