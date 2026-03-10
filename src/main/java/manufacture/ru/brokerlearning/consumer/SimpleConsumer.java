@@ -25,7 +25,9 @@ public class SimpleConsumer {
             "at-most-once-topic", "at-least-once-topic", "exactly-once-topic",
             "benchmark-topic", "replay-topic", "compare-topic",
             "dlq-compare-topic", "dlq-compare-topic.DLT",
-            "ordering-1p-topic", "ordering-5p-topic"
+            "ordering-1p-topic", "ordering-5p-topic",
+            "compression-none", "compression-gzip", "compression-snappy",
+            "compression-lz4", "compression-zstd"
     );
 
     private final MessageHistoryService messageHistoryService;
