@@ -21,7 +21,7 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class SimpleConsumer {
 
-    private static final Set<String> IGNORED_TOPICS = Set.of(
+    private static final Set<String> SEMANTICS_TOPICS = Set.of(
             "at-most-once-topic", "at-least-once-topic", "exactly-once-topic"
     );
 
@@ -31,12 +31,13 @@ public class SimpleConsumer {
     @KafkaListener(topicPattern = ".*", groupId = "main-consumer-group", containerFactory = "kafkaListenerContainerFactory")
     public void listen(ConsumerRecord<String, String> record, Acknowledgment ack) {
         ack.acknowledge();
-        if (IGNORED_TOPICS.contains(record.topic())) {
-            return;
-        }
-        log.info("MainConsumer received: topic={}, partition={}, offset={}, key={}, value={}",
-                record.topic(), record.partition(), record.offset(), record.key(), record.value());
+        log.info("MainConsumer received: topic={}, partition={}, offset={}, key={}",
+                record.topic(), record.partition(), record.offset(), record.key());
+        // Сохраняем в базу все сообщения (для мониторинга)
         messageHistoryService.saveReceivedMessage(record);
-        realtimeMessageService.broadcast(record);
+        // В ленту Consumer-страницы транслируем только пользовательские topics
+        if (!SEMANTICS_TOPICS.contains(record.topic())) {
+            realtimeMessageService.broadcast(record);
+        }
     }
 }
