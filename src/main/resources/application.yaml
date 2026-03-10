@@ -24,6 +24,12 @@ spring:
     listener:
       ack-mode: manual
 
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+
   datasource:
     url: jdbc:postgresql://localhost:5432/broker_learning
     username: postgres

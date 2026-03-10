@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Broker Learning - Kafka vs RabbitMQ')}"></head>
+<body>
+
+<nav th:replace="~{fragments/layout :: navbar}"></nav>
+
+<div class="container container-main">
+    <div class="page-header">
+        <h2>Kafka vs RabbitMQ</h2>
+        <p>Отправьте одно и то же сообщение в оба брокера и наглядно увидьте разницу в их работе.</p>
+    </div>
+
+    <!-- Ключевые отличия -->
+    <div class="row g-4 mb-4">
+        <div class="col-lg-6">
+            <div class="cmp-card cmp-kafka">
+                <div class="cmp-card-header">
+                    <div class="cmp-logo">K</div>
+                    <div>
+                        <h5 class="mb-0">Apache Kafka</h5>
+                        <span class="cmp-subtitle">Распределённый лог событий</span>
+                    </div>
+                </div>
+                <ul class="cmp-features">
+                    <li><span class="cmp-icon">&#128203;</span> <strong>Лог</strong> — сообщения хранятся на диске и не удаляются после чтения</li>
+                    <li><span class="cmp-icon">&#128257;</span> <strong>Replay</strong> — можно перечитать данные с любого offset</li>
+                    <li><span class="cmp-icon">&#9889;</span> <strong>Throughput</strong> — миллионы msg/sec, sequential I/O</li>
+                    <li><span class="cmp-icon">&#128101;</span> <strong>Consumer Groups</strong> — несколько групп читают независимо</li>
+                    <li><span class="cmp-icon">&#128218;</span> <strong>Partitions</strong> — параллелизм через партиционирование</li>
+                    <li><span class="cmp-icon">&#128336;</span> <strong>Retention</strong> — хранение 7 дней / навсегда по настройке</li>
+                </ul>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="cmp-card cmp-rabbit">
+                <div class="cmp-card-header">
+                    <div class="cmp-logo cmp-logo-rabbit">R</div>
+                    <div>
+                        <h5 class="mb-0">RabbitMQ</h5>
+                        <span class="cmp-subtitle">Классический message broker</span>
+                    </div>
+                </div>
+                <ul class="cmp-features">
+                    <li><span class="cmp-icon">&#128233;</span> <strong>Очередь</strong> — сообщение удаляется после подтверждения consumer-ом</li>
+                    <li><span class="cmp-icon">&#10060;</span> <strong>Нет replay</strong> — прочитанное сообщение исчезает навсегда</li>
+                    <li><span class="cmp-icon">&#128268;</span> <strong>Routing</strong> — гибкая маршрутизация через exchanges и bindings</li>
+                    <li><span class="cmp-icon">&#9989;</span> <strong>Acknowledgment</strong> — надёжная доставка с подтверждением</li>
+                    <li><span class="cmp-icon">&#128296;</span> <strong>Протоколы</strong> — AMQP, MQTT, STOMP</li>
+                    <li><span class="cmp-icon">&#128203;</span> <strong>Простота</strong> — легко настроить для задач request/reply</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Таблица сравнения -->
+    <div class="card mb-4">
+        <div class="card-header bg-white">
+            <h5 class="mb-0" style="font-size:1rem;">Сравнение по ключевым параметрам</h5>
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-hover mb-0 cmp-table">
+                <thead>
+                <tr><th style="width:30%;">Параметр</th><th style="width:35%;">Kafka</th><th style="width:35%;">RabbitMQ</th></tr>
+                </thead>
+                <tbody>
+                <tr><td><strong>Модель</strong></td><td>Распределённый лог (append-only)</td><td>Классическая очередь (FIFO)</td></tr>
+                <tr><td><strong>Хранение</strong></td><td class="cmp-highlight-kafka">Сообщения хранятся после прочтения</td><td class="cmp-highlight-rabbit">Удаляются после ACK</td></tr>
+                <tr><td><strong>Replay</strong></td><td class="cmp-highlight-kafka">Да — сброс offset</td><td class="cmp-highlight-rabbit">Нет</td></tr>
+                <tr><td><strong>Порядок</strong></td><td>Гарантирован внутри partition</td><td>Гарантирован внутри очереди</td></tr>
+                <tr><td><strong>Throughput</strong></td><td class="cmp-highlight-kafka">Очень высокий (100K+ msg/s)</td><td>Средний (10-50K msg/s)</td></tr>
+                <tr><td><strong>Latency</strong></td><td>Средняя (ms)</td><td class="cmp-highlight-rabbit">Низкая (sub-ms)</td></tr>
+                <tr><td><strong>Routing</strong></td><td>По topic + partition key</td><td class="cmp-highlight-rabbit">Гибкий (exchange types)</td></tr>
+                <tr><td><strong>Протокол</strong></td><td>Свой бинарный</td><td>AMQP (открытый стандарт)</td></tr>
+                <tr><td><strong>Consumer модель</strong></td><td>Pull (consumer тянет)</td><td>Push (broker толкает)</td></tr>
+                <tr><td><strong>Масштабирование</strong></td><td class="cmp-highlight-kafka">Горизонтальное (partitions)</td><td>Вертикальное + кластер</td></tr>
+                <tr><td><strong>Когда использовать</strong></td><td>Event streaming, логи, аналитика, CQRS</td><td>Task queues, RPC, уведомления</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Живая демонстрация -->
+    <div class="card mb-4">
+        <div class="card-header bg-white">
+            <h5 class="mb-0" style="font-size:1rem;">Живая демонстрация: отправь в оба брокера</h5>
+        </div>
+        <div class="card-body">
+            <div class="d-flex align-items-center gap-3 flex-wrap">
+                <input type="text" class="form-control" id="msgInput" placeholder="Введите сообщение..." style="flex:1;min-width:200px;">
+                <button class="btn btn-primary-custom" onclick="doSend()">Отправить в оба</button>
+                <button class="btn btn-outline-secondary" onclick="doClear()">Очистить</button>
+            </div>
+            <div id="alertArea" class="mt-3" style="display:none;"></div>
+        </div>
+    </div>
+
+    <!-- Результаты бок о бок -->
+    <div class="row g-4 mb-4">
+        <!-- Kafka -->
+        <div class="col-lg-6">
+            <div class="card h-100 cmp-result-card cmp-result-kafka">
+                <div class="card-header d-flex justify-content-between align-items-center" style="background:linear-gradient(135deg,#f0fdf4,#fff);border-bottom:2px solid #86efac;">
+                    <div>
+                        <h5 class="mb-0" style="font-size:1rem;color:#166534;">Kafka</h5>
+                        <small class="text-muted">Сообщения остаются в topic</small>
+                    </div>
+                    <span class="badge" style="background:#dcfce7;color:#166534;" id="kafkaBadge">0</span>
+                </div>
+                <div class="card-body p-0">
+                    <div id="kafkaEmpty" class="p-4 text-center">
+                        <p class="text-muted mb-0">Отправьте сообщение...</p>
+                    </div>
+                    <div id="kafkaWrap" style="max-height:300px;overflow-y:auto;display:none;padding:.75rem;">
+                        <div id="kafkaLog"></div>
+                    </div>
+                </div>
+                <div class="card-footer text-center" style="background:#f0fdf4;">
+                    <small style="color:#166534;font-weight:600;">Сообщения сохранены — можно перечитать через Replay</small>
+                </div>
+            </div>
+        </div>
+
+        <!-- RabbitMQ -->
+        <div class="col-lg-6">
+            <div class="card h-100 cmp-result-card cmp-result-rabbit">
+                <div class="card-header d-flex justify-content-between align-items-center" style="background:linear-gradient(135deg,#fef3c7,#fff);border-bottom:2px solid #fcd34d;">
+                    <div>
+                        <h5 class="mb-0" style="font-size:1rem;color:#92400e;">RabbitMQ</h5>
+                        <small class="text-muted">Сообщения удаляются после прочтения</small>
+                    </div>
+                    <span class="badge" style="background:#fef3c7;color:#92400e;" id="rabbitBadge">0</span>
+                </div>
+                <div class="card-body p-0">
+                    <div id="rabbitEmpty" class="p-4 text-center">
+                        <p class="text-muted mb-0">Отправьте сообщение...</p>
+                    </div>
+                    <div id="rabbitWrap" style="max-height:300px;overflow-y:auto;display:none;padding:.75rem;">
+                        <div id="rabbitLog"></div>
+                    </div>
+                </div>
+                <div class="card-footer text-center" style="background:#fef3c7;">
+                    <small style="color:#92400e;font-weight:600;">Сообщения удалены из очереди — перечитать невозможно</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Архитектурные схемы -->
+    <div class="card mb-4">
+        <div class="card-header bg-white"><h5 class="mb-0" style="font-size:1rem;">Архитектурные схемы</h5></div>
+        <div class="card-body">
+            <div class="row g-4">
+                <div class="col-lg-6">
+                    <div class="cmp-arch-block cmp-arch-block-kafka">
+                        <div class="cmp-arch-title" style="color:#166534;">Kafka</div>
+                        <div class="cmp-arch">
+                            <div class="cmp-arch-box" style="background:#dcfce7;color:#166534;">Producer</div>
+                            <div class="cmp-arch-arrow">&rarr;</div>
+                            <div class="cmp-arch-box" style="background:#e0f2fe;color:#0369a1;">Topic<br><small>P0 | P1 | P2</small></div>
+                            <div class="cmp-arch-arrow">&rarr;</div>
+                            <div class="cmp-arch-consumers">
+                                <div class="cmp-arch-box" style="background:#f3e8ff;color:#7c3aed;">Group A</div>
+                                <div class="cmp-arch-box" style="background:#fce7f3;color:#be185d;">Group B</div>
+                            </div>
+                        </div>
+                        <p class="cmp-arch-desc">Каждая группа читает все сообщения независимо. Данные не удаляются.</p>
+                    </div>
+                </div>
+                <div class="col-lg-6">
+                    <div class="cmp-arch-block cmp-arch-block-rabbit">
+                        <div class="cmp-arch-title" style="color:#92400e;">RabbitMQ</div>
+                        <div class="cmp-arch">
+                            <div class="cmp-arch-box" style="background:#fef3c7;color:#92400e;">Producer</div>
+                            <div class="cmp-arch-arrow">&rarr;</div>
+                            <div class="cmp-arch-box" style="background:#fed7aa;color:#9a3412;">Exchange</div>
+                            <div class="cmp-arch-arrow">&rarr;</div>
+                            <div class="cmp-arch-box" style="background:#fef3c7;color:#92400e;">Queue</div>
+                            <div class="cmp-arch-arrow">&rarr;</div>
+                            <div class="cmp-arch-box" style="background:#fee2e2;color:#991b1b;">Consumer</div>
+                        </div>
+                        <p class="cmp-arch-desc">Сообщение идёт через exchange &rarr; queue &rarr; consumer. После ACK удаляется.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Management UI links -->
+    <div class="card">
+        <div class="card-body py-3">
+            <div class="cmp-links-row">
+                <a href="http://localhost:8090" target="_blank" class="cmp-ui-link cmp-ui-kafka">
+                    <span class="cmp-ui-dot" style="background:#22c55e;"></span>
+                    <strong>Kafka UI</strong>
+                    <span class="text-muted" style="font-size:.85rem;">localhost:8090</span>
+                    <span class="cmp-ui-arrow">&#8599;</span>
+                </a>
+                <a href="http://localhost:15672" target="_blank" class="cmp-ui-link cmp-ui-rabbit">
+                    <span class="cmp-ui-dot" style="background:#f59e0b;"></span>
+                    <strong>RabbitMQ Management</strong>
+                    <span class="text-muted" style="font-size:.85rem;">localhost:15672</span>
+                    <span class="badge" style="background:#fef3c7;color:#92400e;font-size:.7rem;">guest / guest</span>
+                    <span class="cmp-ui-arrow">&#8599;</span>
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div th:replace="~{fragments/layout :: scripts}"></div>
+
+<style>
+    .cmp-card {
+        border-radius: var(--radius-lg);
+        padding: 28px;
+        border: 1px solid var(--c-border);
+        height: 100%;
+    }
+    .cmp-kafka { background: linear-gradient(135deg, #f0fdf4 0%, #fff 100%); border-color: #86efac; }
+    .cmp-rabbit { background: linear-gradient(135deg, #fef3c7 0%, #fff 100%); border-color: #fcd34d; }
+
+    .cmp-card-header { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
+    .cmp-logo {
+        width: 48px; height: 48px; border-radius: 12px;
+        display: flex; align-items: center; justify-content: center;
+        font-weight: 800; font-size: 1.2rem; color: #fff;
+        background: linear-gradient(135deg, #166534, #22c55e);
+    }
+    .cmp-logo-rabbit { background: linear-gradient(135deg, #92400e, #f59e0b); }
+    .cmp-subtitle { font-size: .82rem; color: var(--c-text-muted); }
+
+    .cmp-features {
+        list-style: none; padding: 0; margin: 0;
+    }
+    .cmp-features li {
+        padding: 8px 0;
+        border-bottom: 1px solid rgba(0,0,0,.05);
+        font-size: .88rem;
+    }
+    .cmp-features li:last-child { border-bottom: none; }
+    .cmp-icon { margin-right: 6px; }
+
+    .cmp-table th { background: #f9fafb; font-weight: 600; font-size: .85rem; }
+    .cmp-table td { font-size: .85rem; vertical-align: middle; }
+    .cmp-highlight-kafka { background: rgba(34,197,94,.06); color: #166534; font-weight: 600; }
+    .cmp-highlight-rabbit { background: rgba(245,158,11,.06); color: #92400e; font-weight: 600; }
+
+    .cmp-arch-block {
+        padding: 20px;
+        border-radius: var(--radius-md);
+        border: 1px solid var(--c-border);
+        height: 100%;
+    }
+    .cmp-arch-block-kafka { background: rgba(34,197,94,.03); border-color: #bbf7d0; }
+    .cmp-arch-block-rabbit { background: rgba(245,158,11,.03); border-color: #fde68a; }
+    .cmp-arch-title { font-weight: 700; font-size: .9rem; margin-bottom: 16px; }
+    .cmp-arch {
+        display: flex; align-items: center; justify-content: center;
+        gap: 10px; flex-wrap: nowrap;
+    }
+    .cmp-arch-box {
+        padding: 10px 14px; border-radius: 10px; font-size: .78rem; font-weight: 600;
+        text-align: center; white-space: nowrap;
+    }
+    .cmp-arch-consumers {
+        display: flex; flex-direction: column; gap: 8px;
+    }
+    .cmp-arch-arrow { font-size: 1.2rem; color: var(--c-text-muted); flex-shrink: 0; }
+    .cmp-arch-desc { font-size: .78rem; color: var(--c-text-muted); margin: 14px 0 0; }
+
+    .cmp-result-kafka { border-color: #86efac; }
+    .cmp-result-rabbit { border-color: #fcd34d; }
+
+    .cmp-links-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+    }
+    .cmp-ui-link {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 14px 20px;
+        border-radius: var(--radius-md);
+        border: 1px solid var(--c-border);
+        text-decoration: none;
+        color: var(--c-text);
+        transition: var(--transition);
+    }
+    .cmp-ui-link:hover { transform: translateY(-1px); box-shadow: var(--shadow-sm); color: var(--c-text); }
+    .cmp-ui-kafka { border-left: 3px solid #22c55e; }
+    .cmp-ui-kafka:hover { background: #f0fdf4; }
+    .cmp-ui-rabbit { border-left: 3px solid #f59e0b; }
+    .cmp-ui-rabbit:hover { background: #fffbeb; }
+    .cmp-ui-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .cmp-ui-arrow { margin-left: auto; font-size: 1rem; color: var(--c-text-muted); }
+
+    .cmp-msg-entry {
+        padding: 6px 10px; margin-bottom: 4px; border-radius: 6px;
+        font-size: .8rem; font-family: 'SF Mono', Consolas, monospace;
+        display: flex; gap: 8px;
+    }
+    .cmp-msg-kafka { background: rgba(34,197,94,.06); }
+    .cmp-msg-rabbit { background: rgba(245,158,11,.06); }
+    .cmp-msg-time { color: var(--c-text-muted); min-width: 75px; }
+    .cmp-msg-dir { font-weight: 700; min-width: 50px; }
+</style>
+
+<script>
+    let lastJson = '';
+
+    async function doSend() {
+        const input = document.getElementById('msgInput');
+        const msg = input.value.trim();
+        if (!msg) { showAlert('danger', 'Введите сообщение'); return; }
+        try {
+            const resp = await fetch('/compare/send', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({message: msg})
+            });
+            const data = await resp.json();
+            if (data.success) {
+                showAlert('success', 'Отправлено в Kafka и RabbitMQ: <strong>' + msg + '</strong>');
+                input.value = '';
+                lastJson = '';
+                setTimeout(refresh, 500);
+            } else {
+                showAlert('danger', 'Ошибка: ' + data.error);
+            }
+        } catch (e) { showAlert('danger', e.message); }
+    }
+
+    async function doClear() {
+        await fetch('/compare/clear', {method: 'POST'});
+        lastJson = '';
+        refresh();
+    }
+
+    function showAlert(type, msg) {
+        const a = document.getElementById('alertArea');
+        a.innerHTML = '<div class="alert alert-' + type + ' py-2 mb-0" style="font-size:.85rem;">' + msg + '</div>';
+        a.style.display = '';
+        setTimeout(function() { a.style.display = 'none'; }, 3000);
+    }
+
+    async function refresh() {
+        try {
+            const resp = await fetch('/compare/status');
+            const data = await resp.json();
+            const json = JSON.stringify(data);
+            if (json === lastJson) return;
+            lastJson = json;
+
+            // Kafka
+            const ks = data.kafkaSent || [];
+            document.getElementById('kafkaBadge').textContent = data.kafkaSentCount || 0;
+            if (ks.length > 0) {
+                document.getElementById('kafkaEmpty').style.display = 'none';
+                document.getElementById('kafkaWrap').style.display = '';
+                const log = document.getElementById('kafkaLog');
+                log.innerHTML = '';
+                ks.forEach(function(m) {
+                    const div = document.createElement('div');
+                    div.className = 'cmp-msg-entry cmp-msg-kafka';
+                    div.innerHTML = '<span class="cmp-msg-time">' + m.time + '</span>'
+                        + '<span class="cmp-msg-dir" style="color:#166534;">IN LOG</span>'
+                        + '<span>' + m.value + '</span>';
+                    log.appendChild(div);
+                });
+            } else {
+                document.getElementById('kafkaEmpty').style.display = '';
+                document.getElementById('kafkaWrap').style.display = 'none';
+            }
+
+            // RabbitMQ
+            const rs = data.rabbitReceived || [];
+            document.getElementById('rabbitBadge').textContent = data.rabbitReceivedCount || 0;
+            if (rs.length > 0) {
+                document.getElementById('rabbitEmpty').style.display = 'none';
+                document.getElementById('rabbitWrap').style.display = '';
+                const log = document.getElementById('rabbitLog');
+                log.innerHTML = '';
+                rs.forEach(function(m) {
+                    const div = document.createElement('div');
+                    div.className = 'cmp-msg-entry cmp-msg-rabbit';
+                    div.innerHTML = '<span class="cmp-msg-time">' + m.time + '</span>'
+                        + '<span class="cmp-msg-dir" style="color:#991b1b;">GONE</span>'
+                        + '<span>' + m.value + '</span>';
+                    log.appendChild(div);
+                });
+            } else {
+                document.getElementById('rabbitEmpty').style.display = '';
+                document.getElementById('rabbitWrap').style.display = 'none';
+            }
+        } catch (e) { console.error(e); }
+    }
+
+    document.getElementById('msgInput').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') doSend();
+    });
+
+    refresh();
+    setInterval(refresh, 2000);
+</script>
+</body>
+</html>

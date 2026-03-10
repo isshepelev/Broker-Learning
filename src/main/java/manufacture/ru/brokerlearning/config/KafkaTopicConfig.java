@@ -31,4 +31,9 @@ public class KafkaTopicConfig {
     public NewTopic replayTopic() {
         return new NewTopic("replay-topic", 1, (short) 1);
     }
+
+    @Bean
+    public NewTopic compareTopic() {
+        return new NewTopic("compare-topic", 1, (short) 1);
+    }
 }

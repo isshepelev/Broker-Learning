@@ -35,6 +35,15 @@ services:
     depends_on:
       - kafka
 
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+
   postgres:
     image: postgres:16
     ports:
