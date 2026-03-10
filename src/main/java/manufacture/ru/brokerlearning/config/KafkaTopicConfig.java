@@ -26,4 +26,9 @@ public class KafkaTopicConfig {
     public NewTopic benchmarkTopic() {
         return new NewTopic("benchmark-topic", 3, (short) 1);
     }
+
+    @Bean
+    public NewTopic replayTopic() {
+        return new NewTopic("replay-topic", 1, (short) 1);
+    }
 }

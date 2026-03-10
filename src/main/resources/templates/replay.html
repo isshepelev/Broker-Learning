@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Broker Learning - Replay')}"></head>
+<body>
+
+<nav th:replace="~{fragments/layout :: navbar}"></nav>
+
+<div class="container container-main">
+    <div class="page-header">
+        <h2>Replay сообщений</h2>
+        <p>Ключевое преимущество Kafka: сообщения <strong>не удаляются</strong> после чтения.
+            Можно сбросить offset consumer group на 0 и перечитать все данные заново.</p>
+    </div>
+
+    <div class="theory-section">
+        <h5>Как это работает?</h5>
+        <p>В обычных очередях (RabbitMQ, SQS) сообщение удаляется после прочтения.
+            В Kafka сообщения <strong>хранятся на диске</strong> и доступны для повторного чтения.
+            Consumer group запоминает свою позицию (offset) — но её можно сбросить на любое значение.
+            Это позволяет: пересчитать данные после бага, подключить нового consumer, провести аудит.</p>
+    </div>
+
+    <!-- Визуальная шкала topic -->
+    <div class="card mb-4">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0" style="font-size: 1rem;">Topic: replay-topic</h5>
+            <div class="d-flex gap-2 align-items-center">
+                <span class="badge" style="background:#e0f2fe;color:#0369a1;" id="badgeTotal">0 сообщений</span>
+                <span class="badge" style="background:#dcfce7;color:#166534;" id="badgeRead">Прочитано: 0</span>
+                <span class="badge" style="background:#fef3c7;color:#92400e;" id="badgeUnread">Не прочитано: 0</span>
+            </div>
+        </div>
+        <div class="card-body">
+            <!-- Offset-шкала -->
+            <div id="offsetBar" class="replay-offset-bar">
+                <div class="replay-empty-hint">Отправьте сообщения, чтобы увидеть шкалу offset-ов</div>
+            </div>
+            <!-- Легенда -->
+            <div class="replay-legend mt-3" id="legend" style="display:none;">
+                <span><span class="replay-legend-dot" style="background:#22c55e;"></span> Прочитано</span>
+                <span><span class="replay-legend-dot" style="background:#f59e0b;"></span> Не прочитано</span>
+                <span class="replay-legend-pointer">▼ — позиция consumer group</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Отправка -->
+    <div class="card mb-3">
+        <div class="card-body py-3">
+            <div class="d-flex align-items-center gap-3 flex-wrap">
+                <input type="text" class="form-control" id="customMsg" placeholder="Введите текст сообщения..." style="flex:1;min-width:200px;">
+                <button class="btn btn-primary-custom replay-btn" onclick="doSendCustom()" id="btnSendCustom">Отправить</button>
+                <button class="btn btn-outline-custom replay-btn" onclick="doSend(5)" id="btnSend">Отправить 5 тестовых</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Управление -->
+    <div class="card mb-4">
+        <div class="card-body py-3">
+            <div class="replay-controls">
+                <button class="btn btn-outline-custom replay-btn" onclick="doRead()" id="btnRead">&#9654; Прочитать</button>
+                <button class="btn replay-btn replay-btn-reset" onclick="doReset()" id="btnReset">&#8634; Сбросить на 0</button>
+                <div class="input-group" style="flex:0 0 auto;width:auto;">
+                    <input type="number" class="form-control" id="customOffset" placeholder="Offset" min="0" style="width:90px;">
+                    <button class="btn btn-outline-secondary" onclick="doResetTo()">Перейти к offset</button>
+                </div>
+                <button class="btn btn-outline-danger replay-btn" onclick="doClear()">Очистить topic</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Уведомление -->
+    <div id="alertArea" style="display:none;" class="mb-4"></div>
+
+    <!-- Лог действий и прочитанные сообщения -->
+    <div class="row g-4 mb-4">
+        <!-- Лог действий -->
+        <div class="col-lg-5">
+            <div class="card h-100">
+                <div class="card-header bg-white">
+                    <h5 class="mb-0" style="font-size: 1rem;">Лог действий</h5>
+                </div>
+                <div class="card-body p-0">
+                    <div id="actionLogEmpty" class="p-4 text-center">
+                        <p class="text-muted mb-0">Выполните действие...</p>
+                    </div>
+                    <div id="actionLogWrap" style="max-height:400px;overflow-y:auto;display:none;padding:.75rem;">
+                        <div id="actionLog"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Лог прочитанных сообщений -->
+        <div class="col-lg-7">
+            <div class="card h-100">
+                <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0" style="font-size: 1rem;">Прочитанные сообщения</h5>
+                    <span class="badge" style="background:#dcfce7;color:#166534;" id="readCountBadge">0</span>
+                </div>
+                <div class="card-body p-0">
+                    <div id="readEmpty" class="p-4 text-center">
+                        <p class="text-muted mb-0">Нажмите "Прочитать"</p>
+                    </div>
+                    <div id="readWrap" style="max-height:400px;overflow-y:auto;display:none;padding:.75rem;">
+                        <div id="readLog"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Все сообщения в topic -->
+    <div class="card">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0" style="font-size: 1rem;">Все сообщения в topic (не удаляются!)</h5>
+            <span class="badge" style="background:#f3e8ff;color:#7c3aed;" id="allCountBadge">0</span>
+        </div>
+        <div class="card-body p-0">
+            <div id="allEmpty" class="p-4 text-center">
+                <p class="text-muted mb-0">Topic пуст</p>
+            </div>
+            <div id="allWrap" class="table-responsive" style="max-height:350px;overflow-y:auto;display:none;">
+                <table class="table table-hover table-sm mb-0">
+                    <thead style="position:sticky;top:0;">
+                    <tr><th style="width:60px;">Offset</th><th>Key</th><th>Value</th><th style="width:40px;">P</th></tr>
+                    </thead>
+                    <tbody id="allBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div th:replace="~{fragments/layout :: scripts}"></div>
+
+<style>
+    .replay-offset-bar {
+        display: flex;
+        align-items: flex-end;
+        gap: 3px;
+        min-height: 80px;
+        padding: 12px 0 24px;
+        position: relative;
+        flex-wrap: wrap;
+    }
+    .replay-empty-hint {
+        width: 100%;
+        text-align: center;
+        color: var(--c-text-muted);
+        font-size: .85rem;
+        padding: 20px 0;
+    }
+    .replay-cell {
+        flex: 1;
+        min-width: 28px;
+        max-width: 48px;
+        height: 44px;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: .7rem;
+        font-weight: 700;
+        color: #fff;
+        transition: all .3s ease;
+        position: relative;
+        cursor: default;
+    }
+    .replay-cell.read {
+        background: #22c55e;
+    }
+    .replay-cell.unread {
+        background: #f59e0b;
+    }
+    .replay-cell.pointer::after {
+        content: '▼';
+        position: absolute;
+        bottom: -20px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: .75rem;
+        color: var(--c-primary);
+        font-weight: 800;
+    }
+
+    .replay-legend {
+        display: flex;
+        gap: 20px;
+        font-size: .78rem;
+        color: var(--c-text-muted);
+    }
+    .replay-legend-dot {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        margin-right: 4px;
+        vertical-align: middle;
+    }
+    .replay-legend-pointer {
+        color: var(--c-primary);
+        font-weight: 600;
+    }
+
+    .replay-controls {
+        display: grid;
+        grid-template-columns: auto auto 1fr auto;
+        gap: 12px;
+        align-items: center;
+    }
+    .replay-btn {
+        padding: 10px 16px;
+        font-weight: 600;
+        font-size: .88rem;
+        white-space: nowrap;
+    }
+    .replay-btn-icon {
+        font-size: 1.1rem;
+        margin-right: 4px;
+    }
+    .replay-btn-reset {
+        background: linear-gradient(135deg, #fef3c7, #fde68a);
+        color: #92400e;
+        border: 1px solid #fcd34d;
+    }
+    .replay-btn-reset:hover {
+        background: linear-gradient(135deg, #fde68a, #fbbf24);
+        color: #78350f;
+    }
+
+    .action-entry {
+        padding: 8px 12px;
+        margin-bottom: 6px;
+        border-radius: 8px;
+        font-size: .8rem;
+        border-left: 3px solid;
+    }
+    .action-send {
+        background: rgba(13,148,136,.06);
+        border-left-color: var(--c-primary);
+    }
+    .action-read {
+        background: rgba(34,197,94,.06);
+        border-left-color: #22c55e;
+    }
+    .action-reset {
+        background: rgba(245,158,11,.06);
+        border-left-color: #f59e0b;
+    }
+    .action-error {
+        background: rgba(239,68,68,.06);
+        border-left-color: #ef4444;
+    }
+
+    .read-session-header {
+        font-size: .82rem;
+        font-weight: 700;
+        color: #166534;
+        padding: 8px 0 4px;
+        border-bottom: 1px solid #e5e7eb;
+        margin-bottom: 4px;
+    }
+    .read-entry {
+        display: flex;
+        gap: 10px;
+        padding: 5px 10px;
+        margin-bottom: 2px;
+        border-radius: 6px;
+        background: rgba(34,197,94,.04);
+        font-size: .8rem;
+        font-family: 'SF Mono', Consolas, monospace;
+    }
+    .read-offset {
+        font-weight: 800;
+        color: var(--c-primary);
+        min-width: 28px;
+    }
+    .read-key {
+        color: var(--c-text-muted);
+        min-width: 80px;
+    }
+    .read-value {
+        color: var(--c-text-secondary);
+    }
+
+    @keyframes cellAppear {
+        from { opacity: 0; transform: scale(0.7); }
+        to { opacity: 1; transform: scale(1); }
+    }
+    .replay-cell.new-cell {
+        animation: cellAppear .3s ease;
+    }
+</style>
+
+<script>
+    let actionCount = 0;
+    let readSession = 0;
+    let totalRead = 0;
+
+    function addAction(type, text) {
+        actionCount++;
+        const log = document.getElementById('actionLog');
+        document.getElementById('actionLogEmpty').style.display = 'none';
+        document.getElementById('actionLogWrap').style.display = '';
+        const div = document.createElement('div');
+        div.className = 'action-entry action-' + type;
+        const time = new Date().toLocaleTimeString('ru-RU');
+        div.innerHTML = '<span style="color:var(--c-text-muted);font-size:.72rem;">' + time + '</span> ' + text;
+        log.insertBefore(div, log.firstChild);
+    }
+
+    function showAlert(type, msg) {
+        const area = document.getElementById('alertArea');
+        area.innerHTML = '<div class="alert alert-' + type + ' py-2 mb-0" style="font-size:.85rem;">' + msg + '</div>';
+        area.style.display = '';
+        setTimeout(function() { area.style.display = 'none'; }, 4000);
+    }
+
+    async function doSend(count) {
+        const btn = document.getElementById('btnSend');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Отправка...';
+        try {
+            const resp = await fetch('/replay/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ count: count })
+            });
+            const data = await resp.json();
+            if (data.success) {
+                addAction('send', '<strong>Отправлено ' + data.count + ' сообщений</strong> в replay-topic');
+                showAlert('success', 'Отправлено ' + data.count + ' сообщений');
+            } else {
+                addAction('error', 'Ошибка: ' + data.error);
+            }
+            setTimeout(refreshStatus, 500);
+        } catch (err) {
+            addAction('error', 'Ошибка: ' + err.message);
+        }
+        btn.disabled = false;
+        btn.innerHTML = '<span class="replay-btn-icon">+</span> 5 тестовых';
+    }
+
+    async function doSendCustom() {
+        const input = document.getElementById('customMsg');
+        const value = input.value.trim();
+        if (!value) { showAlert('danger', 'Введите текст сообщения'); return; }
+        const btn = document.getElementById('btnSendCustom');
+        btn.disabled = true;
+        try {
+            const resp = await fetch('/replay/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ customMessage: value })
+            });
+            const data = await resp.json();
+            if (data.success) {
+                addAction('send', '<strong>Отправлено:</strong> ' + value);
+                showAlert('success', 'Сообщение отправлено');
+                input.value = '';
+            } else {
+                addAction('error', 'Ошибка: ' + data.error);
+            }
+            setTimeout(refreshStatus, 500);
+        } catch (err) {
+            addAction('error', 'Ошибка: ' + err.message);
+        }
+        btn.disabled = false;
+    }
+
+    async function doRead() {
+        const btn = document.getElementById('btnRead');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Чтение...';
+        try {
+            const resp = await fetch('/replay/read', { method: 'POST' });
+            const data = await resp.json();
+            if (data.success) {
+                const msgs = data.messages || [];
+                readSession++;
+                addAction('read', '<strong>Прочитано ' + msgs.length + ' сообщений</strong>'
+                    + (msgs.length > 0 ? ' (offset ' + data.startOffset + ' → ' + data.endOffset + ')' : ' (всё уже прочитано)'));
+
+                // Добавляем в лог прочитанных
+                const readLog = document.getElementById('readLog');
+                if (msgs.length > 0) {
+                    document.getElementById('readEmpty').style.display = 'none';
+                    document.getElementById('readWrap').style.display = '';
+                    totalRead += msgs.length;
+                    document.getElementById('readCountBadge').textContent = totalRead;
+
+                    const header = document.createElement('div');
+                    header.className = 'read-session-header';
+                    header.innerHTML = 'Чтение #' + readSession + ' <span style="color:var(--c-text-muted);font-weight:400;">— ' + msgs.length + ' сообщений (offset ' + data.startOffset + ' → ' + data.endOffset + ')</span>';
+                    readLog.insertBefore(header, readLog.firstChild);
+
+                    // Вставляем сообщения после заголовка (в обратном порядке, чтобы новые сверху)
+                    for (let i = msgs.length - 1; i >= 0; i--) {
+                        const m = msgs[i];
+                        const div = document.createElement('div');
+                        div.className = 'read-entry';
+                        div.innerHTML = '<span class="read-offset">' + m.offset + '</span>'
+                            + '<span class="read-key">' + m.key + '</span>'
+                            + '<span class="read-value">' + m.value + '</span>';
+                        readLog.insertBefore(div, header.nextSibling);
+                    }
+                    showAlert('success', 'Прочитано ' + msgs.length + ' сообщений');
+                } else {
+                    showAlert('info', 'Нет новых сообщений — всё уже прочитано. Сбросьте offset чтобы перечитать!');
+                }
+            } else {
+                addAction('error', 'Ошибка чтения: ' + data.error);
+            }
+            setTimeout(refreshStatus, 500);
+        } catch (err) {
+            addAction('error', 'Ошибка: ' + err.message);
+        }
+        btn.disabled = false;
+        btn.innerHTML = '<span class="replay-btn-icon">&#9654;</span> Прочитать';
+    }
+
+    async function doReset() {
+        const btn = document.getElementById('btnReset');
+        btn.disabled = true;
+        try {
+            const resp = await fetch('/replay/reset', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: '{}'
+            });
+            const data = await resp.json();
+            if (data.success) {
+                addAction('reset', '<strong>Offset сброшен на 0!</strong> Теперь можно перечитать все сообщения заново');
+                showAlert('warning', 'Offset сброшен на 0! Нажмите "Прочитать" чтобы перечитать все сообщения.');
+            } else {
+                addAction('error', 'Ошибка сброса: ' + data.error);
+                showAlert('danger', 'Ошибка: ' + data.error);
+            }
+            setTimeout(refreshStatus, 500);
+        } catch (err) {
+            addAction('error', 'Ошибка: ' + err.message);
+        }
+        btn.disabled = false;
+    }
+
+    async function doResetTo() {
+        const input = document.getElementById('customOffset');
+        const offset = parseInt(input.value);
+        if (isNaN(offset) || offset < 0) {
+            showAlert('danger', 'Введите корректный offset (число >= 0)');
+            return;
+        }
+        try {
+            const resp = await fetch('/replay/reset', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ offset: offset })
+            });
+            const data = await resp.json();
+            if (data.success) {
+                addAction('reset', '<strong>Offset установлен на ' + offset + '</strong>');
+                showAlert('warning', 'Offset установлен на ' + offset);
+            } else {
+                addAction('error', 'Ошибка: ' + data.error);
+            }
+            input.value = '';
+            setTimeout(refreshStatus, 500);
+        } catch (err) {
+            addAction('error', 'Ошибка: ' + err.message);
+        }
+    }
+
+    async function doClear() {
+        if (!confirm('Удалить все сообщения из replay-topic? Это действие необратимо.')) return;
+        try {
+            const resp = await fetch('/replay/clear', { method: 'POST' });
+            const data = await resp.json();
+            if (data.success) {
+                addAction('reset', '<strong>Topic очищен</strong> — все сообщения удалены');
+                showAlert('success', 'Topic очищен');
+                document.getElementById('readEmpty').style.display = '';
+                document.getElementById('readWrap').style.display = 'none';
+                document.getElementById('readLog').innerHTML = '';
+                document.getElementById('readCountBadge').textContent = '0';
+                readSession = 0;
+                totalRead = 0;
+            } else {
+                addAction('error', 'Ошибка: ' + data.error);
+                showAlert('danger', 'Ошибка: ' + data.error);
+            }
+            lastStatusJson = '';
+            setTimeout(refreshStatus, 1000);
+        } catch (err) {
+            addAction('error', 'Ошибка: ' + err.message);
+        }
+    }
+
+    let lastStatusJson = '';
+
+    async function refreshStatus() {
+        try {
+            const resp = await fetch('/replay/status');
+            const data = await resp.json();
+            const json = JSON.stringify(data);
+            if (json === lastStatusJson) return;
+            lastStatusJson = json;
+
+            const total = data.totalMessages || 0;
+            const committed = data.committedOffset || 0;
+            const unread = data.unread || 0;
+
+            document.getElementById('badgeTotal').textContent = total + ' сообщений';
+            document.getElementById('badgeRead').textContent = 'Прочитано: ' + committed;
+            document.getElementById('badgeUnread').textContent = 'Не прочитано: ' + unread;
+
+            // Offset bar
+            const bar = document.getElementById('offsetBar');
+            const allMsgs = data.allMessages || [];
+
+            if (allMsgs.length > 0) {
+                document.getElementById('legend').style.display = '';
+                bar.innerHTML = '';
+                allMsgs.forEach(function(m, i) {
+                    const cell = document.createElement('div');
+                    const offset = parseInt(m.offset);
+                    const isRead = offset < committed;
+                    cell.className = 'replay-cell ' + (isRead ? 'read' : 'unread');
+                    cell.textContent = offset;
+                    cell.title = m.key + ': ' + m.value;
+
+                    // Pointer — на позиции committed offset
+                    if (offset === committed || (committed > 0 && offset === committed - 1 && i === allMsgs.length - 1)) {
+                        // Показываем pointer на последнем прочитанном или первом непрочитанном
+                    }
+                    if (offset === committed) {
+                        cell.classList.add('pointer');
+                    }
+                    // Если все прочитаны, pointer на последнем
+                    if (committed >= total && i === allMsgs.length - 1) {
+                        cell.classList.add('pointer');
+                    }
+
+                    bar.appendChild(cell);
+                });
+            } else {
+                bar.innerHTML = '<div class="replay-empty-hint">Отправьте сообщения, чтобы увидеть шкалу offset-ов</div>';
+                document.getElementById('legend').style.display = 'none';
+            }
+
+            // All messages table
+            if (allMsgs.length > 0) {
+                document.getElementById('allEmpty').style.display = 'none';
+                document.getElementById('allWrap').style.display = '';
+                const tbody = document.getElementById('allBody');
+                tbody.innerHTML = '';
+                allMsgs.forEach(function(m) {
+                    const tr = document.createElement('tr');
+                    const offset = parseInt(m.offset);
+                    const isRead = offset < committed;
+                    tr.style.background = isRead ? 'rgba(34,197,94,.04)' : 'rgba(245,158,11,.04)';
+                    tr.innerHTML = '<td><strong>' + m.offset + '</strong></td><td>' + m.key + '</td><td>' + m.value + '</td><td>' + m.partition + '</td>';
+                    tbody.appendChild(tr);
+                });
+                document.getElementById('allCountBadge').textContent = allMsgs.length;
+            } else {
+                document.getElementById('allEmpty').style.display = '';
+                document.getElementById('allWrap').style.display = 'none';
+                document.getElementById('allCountBadge').textContent = '0';
+            }
+        } catch (err) {
+            console.error(err);
+        }
+    }
+
+    refreshStatus();
+    setInterval(refreshStatus, 3000);
+</script>
+</body>
+</html>
