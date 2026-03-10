@@ -13,58 +13,57 @@
 
     <div class="theory-section">
         <h5>Что такое Consumer Group?</h5>
-        <p><strong>Consumer group</strong> -- это набор consumer-ов, которые совместно обрабатывают данные из topic-ов. Каждый partition назначается ровно одному consumer-у в группе, что обеспечивает параллелизм. Если consumer выходит из строя, Kafka <strong>перебалансирует</strong> его partition-ы между оставшимися участниками группы.</p>
+        <p><strong>Consumer group</strong> -- набор consumer-ов, совместно обрабатывающих данные из topic-ов. Каждый partition назначается ровно одному consumer-у в группе. При сбое Kafka <strong>перебалансирует</strong> partition-ы между оставшимися участниками.</p>
     </div>
 
     <div class="row g-4 mb-4">
         <div class="col-md-6">
             <div class="card h-100">
                 <div class="card-header bg-white">
-                    <h5 class="mb-0">Назначение Partition-ов</h5>
+                    <h5 class="mb-0" style="font-size: 1rem;">Назначение Partition-ов</h5>
                 </div>
                 <div class="card-body">
-                    <p class="text-muted">При присоединении consumer-ов к группе Kafka распределяет partition-ы между ними:</p>
-                    <ul class="text-muted">
+                    <ul style="color: var(--c-text-secondary); font-size: .88rem;">
                         <li>Каждый partition обрабатывается ровно <strong>одним</strong> consumer-ом в группе</li>
                         <li>Один consumer может обрабатывать несколько partition-ов</li>
-                        <li>Если consumer-ов больше, чем partition-ов, часть consumer-ов будет простаивать</li>
-                        <li>Для максимального параллелизма число consumer-ов должно быть равно числу partition-ов</li>
+                        <li>Если consumer-ов больше чем partition-ов, часть будет простаивать</li>
+                        <li>Для максимального параллелизма: число consumer-ов = число partition-ов</li>
                     </ul>
-                    <p class="text-muted mb-0"><strong>Совет:</strong> несколько consumer group-ов могут независимо читать из одного topic-а. Каждая группа отслеживает свои offset-ы.</p>
+                    <p style="color: var(--c-text-secondary); font-size: .86rem;" class="mb-0"><strong>Совет:</strong> несколько consumer group-ов могут независимо читать из одного topic-а.</p>
                 </div>
             </div>
         </div>
         <div class="col-md-6">
             <div class="card h-100">
                 <div class="card-header bg-white">
-                    <h5 class="mb-0">Rebalancing</h5>
+                    <h5 class="mb-0" style="font-size: 1rem;">Rebalancing</h5>
                 </div>
                 <div class="card-body">
-                    <p class="text-muted">Rebalancing происходит при изменении состава группы:</p>
-                    <ul class="text-muted">
-                        <li><strong>Новый consumer присоединяется:</strong> partition-ы перераспределяются</li>
-                        <li><strong>Consumer уходит или падает:</strong> его partition-ы переназначаются</li>
-                        <li><strong>Добавлены новые partition-ы:</strong> запускается rebalancing</li>
+                    <p style="color: var(--c-text-secondary); font-size: .88rem;">Rebalancing происходит при изменении состава группы:</p>
+                    <ul style="color: var(--c-text-secondary); font-size: .88rem;">
+                        <li><strong>Новый consumer:</strong> partition-ы перераспределяются</li>
+                        <li><strong>Consumer выходит:</strong> его partition-ы переназначаются</li>
+                        <li><strong>Добавлены partition-ы:</strong> запускается rebalancing</li>
                     </ul>
-                    <h6 class="fw-semibold mt-3">Стратегии Rebalancing-а</h6>
-                    <ul class="text-muted mb-0">
-                        <li><strong>Eager (по умолчанию):</strong> все consumer-ы отдают все partition-ы и заново присоединяются. Кратковременная остановка обработки.</li>
-                        <li><strong>Cooperative (инкрементальный):</strong> только затронутые partition-ы перераспределяются. Минимизирует простой.</li>
+                    <h6 class="fw-semibold" style="font-size: .85rem;">Стратегии:</h6>
+                    <ul style="color: var(--c-text-secondary); font-size: .86rem;" class="mb-0">
+                        <li><strong>Eager:</strong> все отдают partition-ы и заново присоединяются</li>
+                        <li><strong>Cooperative:</strong> только затронутые partition-ы перераспределяются</li>
                     </ul>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Список Consumer Groups -->
+    <!-- Список -->
     <div class="card mb-4">
         <div class="card-header bg-white d-flex justify-content-between align-items-center">
-            <h5 class="mb-0">Consumer Groups в кластере</h5>
-            <button class="btn btn-sm btn-outline-indigo" onclick="location.reload()">Обновить</button>
+            <h5 class="mb-0" style="font-size: 1rem;">Consumer Groups в кластере</h5>
+            <button class="btn btn-sm btn-outline-custom" onclick="location.reload()">Обновить</button>
         </div>
         <div class="card-body p-0">
             <div th:if="${consumerGroups == null or consumerGroups.isEmpty()}" class="p-4 text-center">
-                <p class="text-muted mb-0">Consumer group-ов не найдено. Они создаются автоматически, когда consumer-ы подписываются на topic-и.</p>
+                <p class="text-muted mb-0">Consumer group-ов не найдено. Они создаются автоматически при подписке на topic-и.</p>
             </div>
             <div th:unless="${consumerGroups == null or consumerGroups.isEmpty()}">
                 <ul class="list-group list-group-flush">
@@ -77,20 +76,20 @@
         </div>
     </div>
 
-    <!-- Управление Offset-ами -->
+    <!-- Offset-ы -->
     <div class="card">
         <div class="card-header bg-white">
-            <h5 class="mb-0">Управление Offset-ами</h5>
+            <h5 class="mb-0" style="font-size: 1rem;">Управление Offset-ами</h5>
         </div>
         <div class="card-body">
-            <div class="row">
+            <div class="row g-4">
                 <div class="col-md-6">
-                    <h6 class="fw-semibold">Автоматический коммит Offset</h6>
-                    <p class="text-muted">С <code>enable.auto.commit=true</code> offset-ы коммитятся автоматически через интервал <code>auto.commit.interval.ms</code>. Просто в использовании, но может привести к потере данных (at-most-once), если consumer упадёт до обработки сообщения, чей offset уже зафиксирован.</p>
+                    <h6 class="fw-semibold" style="font-size: .9rem;">Автоматический коммит</h6>
+                    <p style="color: var(--c-text-secondary); font-size: .88rem;">С <code>enable.auto.commit=true</code> offset-ы коммитятся автоматически через интервал <code>auto.commit.interval.ms</code>. Просто, но может привести к потерям (at-most-once).</p>
                 </div>
                 <div class="col-md-6">
-                    <h6 class="fw-semibold">Ручной коммит Offset</h6>
-                    <p class="text-muted">С <code>enable.auto.commit=false</code> приложение явно коммитит offset-ы после успешной обработки. Это обеспечивает at-least-once доставку. Используйте <code>commitSync()</code> для блокирующего коммита или <code>commitAsync()</code> для неблокирующего.</p>
+                    <h6 class="fw-semibold" style="font-size: .9rem;">Ручной коммит</h6>
+                    <p style="color: var(--c-text-secondary); font-size: .88rem;">С <code>enable.auto.commit=false</code> приложение явно коммитит offset-ы. Обеспечивает at-least-once. Используйте <code>commitSync()</code> или <code>commitAsync()</code>.</p>
                 </div>
             </div>
         </div>

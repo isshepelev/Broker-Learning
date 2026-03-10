@@ -11,26 +11,26 @@
         <p>Интерактивная площадка для изучения Apache Kafka. Отправляйте сообщения, наблюдайте за consumer-ами, управляйте topic-ами и изучайте семантики доставки.</p>
     </div>
 
-    <!-- Карточки статистики -->
+    <!-- Статистика -->
     <div class="row g-4 mb-4">
         <div class="col-md-4">
-            <div class="card stat-card p-3">
+            <div class="card stat-card">
                 <div class="stat-label">Topics</div>
                 <div class="stat-value" th:text="${topics != null ? topics.size() : 0}">0</div>
-                <small class="text-muted">Kafka topic-ов в кластере</small>
+                <small class="text-muted">Topic-ов в кластере</small>
             </div>
         </div>
         <div class="col-md-4">
-            <div class="card stat-card p-3">
+            <div class="card stat-card">
                 <div class="stat-label">Сообщения</div>
                 <div class="stat-value" th:text="${recentMessages != null ? recentMessages.size() : 0}">0</div>
                 <small class="text-muted">Записано в историю</small>
             </div>
         </div>
         <div class="col-md-4">
-            <div class="card stat-card p-3">
+            <div class="card stat-card">
                 <div class="stat-label">Jobs</div>
-                <div>
+                <div class="mt-2">
                     <span class="badge me-1"
                           th:classappend="${jobStatuses != null and jobStatuses['producerJob'] != null and jobStatuses['producerJob']['running'] == true ? 'status-badge-running' : 'status-badge-stopped'}"
                           th:text="${jobStatuses != null and jobStatuses['producerJob'] != null and jobStatuses['producerJob']['running'] == true ? 'Producer: работает' : 'Producer: остановлен'}">
@@ -42,7 +42,7 @@
                         Consumer: остановлен
                     </span>
                 </div>
-                <small class="text-muted mt-1">Статус scheduled-задач</small>
+                <small class="text-muted mt-2 d-block">Статус scheduled-задач</small>
             </div>
         </div>
     </div>
@@ -50,16 +50,15 @@
     <!-- Topics -->
     <div class="card mb-4">
         <div class="card-header bg-white">
-            <h5 class="mb-0">Topics в кластере</h5>
+            <h5 class="mb-0" style="font-size: 1rem;">Topics в кластере</h5>
         </div>
         <div class="card-body">
             <div th:if="${topics == null or topics.isEmpty()}">
-                <p class="text-muted mb-0">Topic-ов не найдено. Убедитесь, что Kafka запущена, и создайте topic.</p>
+                <p class="text-muted mb-0 text-center">Topic-ов не найдено. Убедитесь, что Kafka запущена.</p>
             </div>
             <div th:unless="${topics == null or topics.isEmpty()}" class="d-flex flex-wrap gap-2">
-                <span th:each="topic : ${topics}" class="badge badge-topic p-2">
-                    <a th:href="@{/topics/{name}(name=${topic})}" class="text-decoration-none" style="color: inherit;" th:text="${topic}">topic-name</a>
-                </span>
+                <a th:each="topic : ${topics}" th:href="@{/topics/{name}(name=${topic})}"
+                   class="badge badge-topic text-decoration-none p-2" th:text="${topic}">topic-name</a>
             </div>
         </div>
     </div>
@@ -67,8 +66,8 @@
     <!-- Последние сообщения -->
     <div class="card">
         <div class="card-header bg-white d-flex justify-content-between align-items-center">
-            <h5 class="mb-0">Последние сообщения</h5>
-            <a href="/history" th:href="@{/history}" class="btn btn-sm btn-outline-indigo">Смотреть все</a>
+            <h5 class="mb-0" style="font-size: 1rem;">Последние сообщения</h5>
+            <a href="/history" th:href="@{/history}" class="btn btn-sm btn-outline-custom">Смотреть все</a>
         </div>
         <div class="card-body p-0">
             <div th:if="${recentMessages == null or recentMessages.isEmpty()}" class="p-4 text-center">
@@ -97,7 +96,7 @@
                                   th:classappend="${msg.direction == 'SENT' ? 'bg-primary' : 'bg-success'}"
                                   th:text="${msg.direction == 'SENT' ? 'Отправлено' : 'Получено'}">Отправлено</span>
                         </td>
-                        <td class="text-muted" th:text="${msg.timestamp}">2024-01-01</td>
+                        <td class="text-muted" th:text="${msg.timestamp}">--</td>
                     </tr>
                     </tbody>
                 </table>

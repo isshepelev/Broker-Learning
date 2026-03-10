@@ -6,37 +6,36 @@
 <nav th:replace="~{fragments/layout :: navbar}"></nav>
 
 <div class="container container-main">
-    <a href="/topics" th:href="@{/topics}" class="btn btn-outline-indigo btn-sm mb-3">&larr; Назад к Topics</a>
+    <a href="/topics" th:href="@{/topics}" class="btn btn-sm btn-outline-custom mb-4">&larr; Назад к Topics</a>
 
     <div th:if="${topicInfo == null}" class="card">
         <div class="card-body text-center py-5">
-            <h4 class="text-muted">Topic не найден или Kafka недоступна.</h4>
-            <p class="text-muted">Topic мог быть удалён или кластер Kafka недоступен.</p>
-            <a href="/topics" th:href="@{/topics}" class="btn btn-indigo mt-2">Назад к Topics</a>
+            <h4 style="color: var(--c-text-secondary);">Topic не найден или Kafka недоступна.</h4>
+            <a href="/topics" th:href="@{/topics}" class="btn btn-primary-custom mt-3">Назад к Topics</a>
         </div>
     </div>
 
     <div th:if="${topicInfo != null}">
         <div class="page-header" style="text-align: left;">
             <h2 th:text="'Topic: ' + ${topicInfo.name}">Topic: my-topic</h2>
-            <p>Подробная информация и конфигурация topic-а.</p>
+            <p style="margin: 0;">Подробная информация и конфигурация topic-а.</p>
         </div>
 
         <div class="row g-4 mb-4">
             <div class="col-md-4">
-                <div class="card stat-card p-3">
+                <div class="card stat-card">
                     <div class="stat-label">Название</div>
-                    <div class="stat-value" style="font-size: 1.2rem;" th:text="${topicInfo.name}">my-topic</div>
+                    <div class="stat-value" style="font-size: 1.15rem;" th:text="${topicInfo.name}">my-topic</div>
                 </div>
             </div>
             <div class="col-md-4">
-                <div class="card stat-card p-3">
+                <div class="card stat-card">
                     <div class="stat-label">Partition-ов</div>
                     <div class="stat-value" th:text="${topicInfo.partitions}">1</div>
                 </div>
             </div>
             <div class="col-md-4">
-                <div class="card stat-card p-3">
+                <div class="card stat-card">
                     <div class="stat-label">Replication Factor</div>
                     <div class="stat-value" th:text="${topicInfo.replicationFactor}">1</div>
                 </div>
@@ -45,7 +44,7 @@
 
         <div class="card">
             <div class="card-header bg-white">
-                <h5 class="mb-0">Конфигурация Topic-а</h5>
+                <h5 class="mb-0" style="font-size: 1rem;">Конфигурация Topic-а</h5>
             </div>
             <div class="card-body p-0">
                 <div th:if="${configs == null or configs.isEmpty()}" class="p-4 text-center">
@@ -53,12 +52,7 @@
                 </div>
                 <div th:unless="${configs == null or configs.isEmpty()}" class="table-responsive">
                     <table class="table table-hover table-sm mb-0">
-                        <thead>
-                        <tr>
-                            <th>Ключ конфигурации</th>
-                            <th>Значение</th>
-                        </tr>
-                        </thead>
+                        <thead><tr><th>Ключ конфигурации</th><th>Значение</th></tr></thead>
                         <tbody>
                         <tr th:each="entry : ${configs}">
                             <td class="fw-semibold" th:text="${entry.key}">key</td>

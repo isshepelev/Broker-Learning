@@ -20,16 +20,16 @@
     </div>
 
     <div class="row g-4">
-        <!-- Форма отправки -->
+        <!-- Форма -->
         <div class="col-lg-7">
             <div class="card">
                 <div class="card-header bg-white">
-                    <h5 class="mb-0">Отправить сообщение</h5>
+                    <h5 class="mb-0" style="font-size: 1rem;">Отправить сообщение</h5>
                 </div>
                 <div class="card-body">
                     <form id="sendForm">
                         <div class="mb-3">
-                            <label for="topicSelect" class="form-label fw-semibold">Topic</label>
+                            <label for="topicSelect" class="form-label">Topic</label>
                             <div class="input-group">
                                 <select class="form-select" id="topicSelect" onchange="onTopicSelectChange()">
                                     <option value="">-- Выберите topic --</option>
@@ -41,23 +41,23 @@
                         </div>
 
                         <div class="mb-3">
-                            <label for="key" class="form-label fw-semibold">Key <span class="text-muted fw-normal">(необязательно)</span></label>
+                            <label for="key" class="form-label">Key <span class="fw-normal text-muted">(необязательно)</span></label>
                             <input type="text" class="form-control" id="key" placeholder="Ключ сообщения">
                         </div>
 
                         <div class="mb-3">
-                            <label for="value" class="form-label fw-semibold">Value</label>
+                            <label for="value" class="form-label">Value</label>
                             <textarea class="form-control" id="value" rows="4" placeholder='{"message": "Привет, Kafka!"}'></textarea>
                         </div>
 
                         <div class="mb-3">
-                            <label for="partition" class="form-label fw-semibold">Partition <span class="text-muted fw-normal">(необязательно)</span></label>
+                            <label for="partition" class="form-label">Partition <span class="fw-normal text-muted">(необязательно)</span></label>
                             <input type="number" class="form-control" id="partition" min="0" placeholder="Авто (по хешу ключа)">
                         </div>
 
-                        <div class="mb-3">
-                            <label class="form-label fw-semibold">Режим отправки</label>
-                            <div class="d-flex flex-wrap gap-3">
+                        <div class="mb-4">
+                            <label class="form-label">Режим отправки</label>
+                            <div class="d-flex flex-wrap gap-3 mt-1">
                                 <div class="form-check">
                                     <input class="form-check-input" type="radio" name="sendMode" id="modeFireForget" value="fire-and-forget" checked>
                                     <label class="form-check-label" for="modeFireForget">Fire-and-Forget</label>
@@ -77,13 +77,13 @@
                             </div>
                         </div>
 
-                        <div class="mb-3">
-                            <label class="form-label fw-semibold">Headers <span class="text-muted fw-normal">(необязательно)</span></label>
+                        <div class="mb-4">
+                            <label class="form-label">Headers <span class="fw-normal text-muted">(необязательно)</span></label>
                             <div id="headersContainer"></div>
                             <button type="button" class="btn btn-sm btn-outline-secondary mt-2" onclick="addHeaderRow()">+ Добавить header</button>
                         </div>
 
-                        <button type="submit" class="btn btn-indigo w-100" id="sendBtn">Отправить сообщение</button>
+                        <button type="submit" class="btn btn-primary-custom w-100 py-2" id="sendBtn">Отправить сообщение</button>
                     </form>
                 </div>
             </div>
@@ -93,20 +93,20 @@
         <div class="col-lg-5">
             <div class="card">
                 <div class="card-header bg-white">
-                    <h5 class="mb-0">Результат отправки</h5>
+                    <h5 class="mb-0" style="font-size: 1rem;">Результат отправки</h5>
                 </div>
                 <div class="card-body">
-                    <div id="resultArea" class="result-area text-muted">Здесь появится результат после отправки сообщения...</div>
+                    <div id="resultArea" class="result-area text-muted">Здесь появится результат после отправки...</div>
                 </div>
             </div>
 
             <div class="card mt-4">
                 <div class="card-header bg-white">
-                    <h5 class="mb-0">История отправок (сессия)</h5>
+                    <h5 class="mb-0" style="font-size: 1rem;">История отправок (сессия)</h5>
                 </div>
                 <div class="card-body p-0">
                     <div id="sendHistory" class="p-3">
-                        <p class="text-muted mb-0">Отправленные сообщения за текущую сессию появятся здесь.</p>
+                        <p class="text-muted mb-0 text-center" style="font-size: .88rem;">Отправленные сообщения за сессию появятся здесь.</p>
                     </div>
                 </div>
             </div>
@@ -122,19 +122,13 @@
     function onTopicSelectChange() {
         const select = document.getElementById('topicSelect');
         const custom = document.getElementById('topicCustom');
-        if (select.value === '__custom__') {
-            custom.classList.remove('d-none');
-            custom.focus();
-        } else {
-            custom.classList.add('d-none');
-            custom.value = '';
-        }
+        if (select.value === '__custom__') { custom.classList.remove('d-none'); custom.focus(); }
+        else { custom.classList.add('d-none'); custom.value = ''; }
     }
 
     function getSelectedTopic() {
         const select = document.getElementById('topicSelect');
-        if (select.value === '__custom__') return document.getElementById('topicCustom').value.trim();
-        return select.value;
+        return select.value === '__custom__' ? document.getElementById('topicCustom').value.trim() : select.value;
     }
 
     function addHeaderRow() {
@@ -144,75 +138,56 @@
         row.innerHTML = `
             <input type="text" class="form-control header-key" placeholder="Ключ header-а">
             <input type="text" class="form-control header-value" placeholder="Значение">
-            <button type="button" class="btn btn-outline-danger" onclick="this.parentElement.remove()">X</button>
+            <button type="button" class="btn btn-outline-danger btn-sm" onclick="this.parentElement.remove()" style="border-radius: 0 var(--radius-sm) var(--radius-sm) 0;">X</button>
         `;
         container.appendChild(row);
     }
 
     function collectHeaders() {
         const headers = {};
-        const keys = document.querySelectorAll('.header-key');
-        const values = document.querySelectorAll('.header-value');
-        keys.forEach((keyEl, i) => {
+        document.querySelectorAll('.header-key').forEach((keyEl, i) => {
             const k = keyEl.value.trim();
-            const v = values[i] ? values[i].value.trim() : '';
-            if (k) headers[k] = v;
+            const vals = document.querySelectorAll('.header-value');
+            if (k) headers[k] = vals[i] ? vals[i].value.trim() : '';
         });
         return Object.keys(headers).length > 0 ? headers : null;
     }
 
     document.getElementById('sendForm').addEventListener('submit', async function(e) {
         e.preventDefault();
-
         const topic = getSelectedTopic();
         if (!topic) { alert('Выберите или введите название topic-а.'); return; }
-
         const value = document.getElementById('value').value.trim();
         if (!value) { alert('Введите значение сообщения.'); return; }
 
         const sendMode = document.querySelector('input[name="sendMode"]:checked').value;
         const partitionVal = document.getElementById('partition').value;
-
         const payload = {
-            topic: topic,
-            key: document.getElementById('key').value.trim() || null,
-            value: value,
-            partition: partitionVal ? parseInt(partitionVal) : null,
-            headers: collectHeaders(),
-            sendMode: sendMode
+            topic, key: document.getElementById('key').value.trim() || null,
+            value, partition: partitionVal ? parseInt(partitionVal) : null,
+            headers: collectHeaders(), sendMode
         };
 
         const resultArea = document.getElementById('resultArea');
         const sendBtn = document.getElementById('sendBtn');
-
-        sendBtn.disabled = true;
-        sendBtn.textContent = 'Отправка...';
-        resultArea.textContent = 'Отправка сообщения...';
-        resultArea.className = 'result-area text-muted';
+        sendBtn.disabled = true; sendBtn.textContent = 'Отправка...';
+        resultArea.textContent = 'Отправка...'; resultArea.className = 'result-area text-muted';
 
         try {
-            const response = await fetch('/producer/send', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-            const data = await response.json();
-
+            const resp = await fetch('/producer/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            const data = await resp.json();
             if (data.success) {
                 resultArea.textContent = 'УСПЕШНО\n\n' + (data.details || 'Сообщение отправлено.');
-                resultArea.className = 'result-area text-success';
+                resultArea.className = 'result-area'; resultArea.style.color = 'var(--c-success)';
                 addToHistory(payload);
             } else {
                 resultArea.textContent = 'ОШИБКА\n\n' + (data.details || 'Неизвестная ошибка.');
-                resultArea.className = 'result-area text-danger';
+                resultArea.className = 'result-area'; resultArea.style.color = 'var(--c-danger)';
             }
         } catch (err) {
             resultArea.textContent = 'ОШИБКА\n\n' + err.message;
-            resultArea.className = 'result-area text-danger';
-        } finally {
-            sendBtn.disabled = false;
-            sendBtn.textContent = 'Отправить сообщение';
-        }
+            resultArea.className = 'result-area'; resultArea.style.color = 'var(--c-danger)';
+        } finally { sendBtn.disabled = false; sendBtn.textContent = 'Отправить сообщение'; }
     });
 
     function addToHistory(payload) {
@@ -224,8 +199,8 @@
         item.innerHTML = `
             <small class="text-muted">${new Date().toLocaleTimeString()}</small>
             <strong class="ms-2">${payload.topic}</strong>
-            <span class="badge bg-primary ms-2">${payload.sendMode}</span><br>
-            <small>Key: ${payload.key || '-'} | Value: ${truncVal}</small>
+            <span class="badge" style="background:var(--c-primary-light);color:var(--c-primary);font-size:.72rem;" class="ms-2">${payload.sendMode}</span><br>
+            <small style="color: var(--c-text-secondary);">Key: ${payload.key || '-'} | Value: ${truncVal}</small>
         `;
         if (sendHistoryItems.length === 1) container.innerHTML = '';
         container.prepend(item);

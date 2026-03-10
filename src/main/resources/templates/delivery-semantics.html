@@ -8,16 +8,15 @@
 <div class="container container-main">
     <div class="page-header">
         <h2>Семантики доставки</h2>
-        <p>Изучите и сравните три фундаментальные гарантии доставки сообщений в Apache Kafka. Запускайте демонстрации, чтобы увидеть поведение каждой семантики на практике.</p>
+        <p>Изучите и сравните три фундаментальные гарантии доставки сообщений в Apache Kafka.</p>
     </div>
 
     <div class="theory-section">
         <h5>Обзор гарантий доставки</h5>
-        <p>Kafka поддерживает три уровня гарантии доставки в зависимости от конфигурации producer-а и consumer-а:
-            <strong>At-Most-Once</strong> (сообщения могут теряться, но не дублируются),
-            <strong>At-Least-Once</strong> (сообщения не теряются, но могут дублироваться),
-            <strong>Exactly-Once</strong> (каждое сообщение доставляется ровно один раз благодаря транзакциям и идемпотентности).
-            Выбор зависит от допустимости потери данных и дубликатов в вашем приложении.</p>
+        <p>Kafka поддерживает три уровня гарантии:
+            <strong>At-Most-Once</strong> (могут теряться, не дублируются),
+            <strong>At-Least-Once</strong> (не теряются, могут дублироваться),
+            <strong>Exactly-Once</strong> (ровно один раз благодаря транзакциям и идемпотентности).</p>
     </div>
 
     <div class="row g-4">
@@ -25,28 +24,30 @@
         <div class="col-lg-4">
             <div class="card h-100">
                 <div class="card-header bg-white">
-                    <h5 class="mb-0">
-                        <span class="badge bg-warning text-dark me-2">1</span>
+                    <h5 class="mb-0" style="font-size: 1rem;">
+                        <span class="badge" style="background: var(--c-accent-light); color: #92400e;">1</span>
                         At-Most-Once
                     </h5>
                 </div>
-                <div class="card-body">
-                    <p class="text-muted">Сообщения отправляются без ожидания подтверждения от broker-а. Consumer использует auto-commit, поэтому offset фиксируется до завершения обработки. При сбое consumer-а сообщения могут быть потеряны, но дубликатов не будет.</p>
+                <div class="card-body d-flex flex-column">
+                    <p style="color: var(--c-text-secondary); font-size: .88rem;">Сообщения отправляются без ожидания подтверждения. Consumer использует auto-commit. При сбое сообщения могут быть потеряны, но дубликатов не будет.</p>
 
-                    <h6 class="fw-semibold mt-3">Ключевые настройки:</h6>
-                    <ul class="small text-muted">
+                    <h6 class="fw-semibold mt-2" style="font-size: .85rem;">Ключевые настройки:</h6>
+                    <ul style="font-size: .82rem; color: var(--c-text-secondary);">
                         <li><code>acks=0</code> (producer)</li>
-                        <li><code>enable.auto.commit=true</code> (consumer)</li>
-                        <li>Без retry у producer-а</li>
+                        <li><code>enable.auto.commit=true</code></li>
+                        <li>Без retry</li>
                     </ul>
 
-                    <hr>
-                    <div class="mb-3">
-                        <label for="atMostOnceCount" class="form-label fw-semibold">Количество сообщений</label>
-                        <input type="number" class="form-control" id="atMostOnceCount" value="10" min="1" max="1000">
+                    <div class="mt-auto pt-3">
+                        <hr>
+                        <div class="mb-3">
+                            <label for="atMostOnceCount" class="form-label">Количество сообщений</label>
+                            <input type="number" class="form-control" id="atMostOnceCount" value="10" min="1" max="1000">
+                        </div>
+                        <button class="btn btn-primary-custom w-100" onclick="runDemo('at-most-once', 'atMostOnceCount', 'atMostOnceResult')">Запустить демо</button>
+                        <div id="atMostOnceResult" class="result-area mt-3" style="display: none;"></div>
                     </div>
-                    <button class="btn btn-indigo w-100" onclick="runDemo('at-most-once', 'atMostOnceCount', 'atMostOnceResult')">Запустить демо</button>
-                    <div id="atMostOnceResult" class="result-area mt-3" style="display: none;"></div>
                 </div>
             </div>
         </div>
@@ -55,29 +56,31 @@
         <div class="col-lg-4">
             <div class="card h-100">
                 <div class="card-header bg-white">
-                    <h5 class="mb-0">
-                        <span class="badge bg-info text-dark me-2">2</span>
+                    <h5 class="mb-0" style="font-size: 1rem;">
+                        <span class="badge" style="background: var(--c-info-light); color: #1e40af;">2</span>
                         At-Least-Once
                     </h5>
                 </div>
-                <div class="card-body">
-                    <p class="text-muted">Producer ждёт подтверждения от broker-а, а consumer коммитит offset только после обработки. Если consumer упадёт до коммита -- сообщение будет доставлено повторно. Гарантируется отсутствие потерь, но возможны дубликаты.</p>
+                <div class="card-body d-flex flex-column">
+                    <p style="color: var(--c-text-secondary); font-size: .88rem;">Producer ждёт подтверждения, consumer коммитит offset после обработки. При сбое до коммита -- повторная доставка. Нет потерь, возможны дубликаты.</p>
 
-                    <h6 class="fw-semibold mt-3">Ключевые настройки:</h6>
-                    <ul class="small text-muted">
+                    <h6 class="fw-semibold mt-2" style="font-size: .85rem;">Ключевые настройки:</h6>
+                    <ul style="font-size: .82rem; color: var(--c-text-secondary);">
                         <li><code>acks=all</code> (producer)</li>
-                        <li><code>enable.auto.commit=false</code> (consumer)</li>
-                        <li>Ручной коммит offset после обработки</li>
-                        <li>Retry включён на producer-е</li>
+                        <li><code>enable.auto.commit=false</code></li>
+                        <li>Ручной коммит offset</li>
+                        <li>Retry включён</li>
                     </ul>
 
-                    <hr>
-                    <div class="mb-3">
-                        <label for="atLeastOnceCount" class="form-label fw-semibold">Количество сообщений</label>
-                        <input type="number" class="form-control" id="atLeastOnceCount" value="10" min="1" max="1000">
+                    <div class="mt-auto pt-3">
+                        <hr>
+                        <div class="mb-3">
+                            <label for="atLeastOnceCount" class="form-label">Количество сообщений</label>
+                            <input type="number" class="form-control" id="atLeastOnceCount" value="10" min="1" max="1000">
+                        </div>
+                        <button class="btn btn-primary-custom w-100" onclick="runDemo('at-least-once', 'atLeastOnceCount', 'atLeastOnceResult')">Запустить демо</button>
+                        <div id="atLeastOnceResult" class="result-area mt-3" style="display: none;"></div>
                     </div>
-                    <button class="btn btn-indigo w-100" onclick="runDemo('at-least-once', 'atLeastOnceCount', 'atLeastOnceResult')">Запустить демо</button>
-                    <div id="atLeastOnceResult" class="result-area mt-3" style="display: none;"></div>
                 </div>
             </div>
         </div>
@@ -86,29 +89,31 @@
         <div class="col-lg-4">
             <div class="card h-100">
                 <div class="card-header bg-white">
-                    <h5 class="mb-0">
-                        <span class="badge bg-success me-2">3</span>
+                    <h5 class="mb-0" style="font-size: 1rem;">
+                        <span class="badge" style="background: var(--c-success-light); color: #065f46;">3</span>
                         Exactly-Once
                     </h5>
                 </div>
-                <div class="card-body">
-                    <p class="text-muted">Сообщения отправляются внутри Kafka-транзакции с идемпотентным producer-ом. Consumer читает только подтверждённые сообщения (<code>isolation.level=read_committed</code>). Каждое сообщение обрабатывается ровно один раз даже при сбоях.</p>
+                <div class="card-body d-flex flex-column">
+                    <p style="color: var(--c-text-secondary); font-size: .88rem;">Транзакционная отправка с идемпотентным producer-ом. Consumer читает только подтверждённые сообщения. Каждое обрабатывается ровно один раз.</p>
 
-                    <h6 class="fw-semibold mt-3">Ключевые настройки:</h6>
-                    <ul class="small text-muted">
+                    <h6 class="fw-semibold mt-2" style="font-size: .85rem;">Ключевые настройки:</h6>
+                    <ul style="font-size: .82rem; color: var(--c-text-secondary);">
                         <li><code>acks=all</code> + <code>enable.idempotence=true</code></li>
-                        <li><code>transactional.id</code> задан у producer-а</li>
-                        <li><code>isolation.level=read_committed</code> (consumer)</li>
-                        <li><code>executeInTransaction()</code> для атомарной отправки</li>
+                        <li><code>transactional.id</code></li>
+                        <li><code>isolation.level=read_committed</code></li>
+                        <li><code>executeInTransaction()</code></li>
                     </ul>
 
-                    <hr>
-                    <div class="mb-3">
-                        <label for="exactlyOnceCount" class="form-label fw-semibold">Количество сообщений</label>
-                        <input type="number" class="form-control" id="exactlyOnceCount" value="10" min="1" max="1000">
+                    <div class="mt-auto pt-3">
+                        <hr>
+                        <div class="mb-3">
+                            <label for="exactlyOnceCount" class="form-label">Количество сообщений</label>
+                            <input type="number" class="form-control" id="exactlyOnceCount" value="10" min="1" max="1000">
+                        </div>
+                        <button class="btn btn-primary-custom w-100" onclick="runDemo('exactly-once', 'exactlyOnceCount', 'exactlyOnceResult')">Запустить демо</button>
+                        <div id="exactlyOnceResult" class="result-area mt-3" style="display: none;"></div>
                     </div>
-                    <button class="btn btn-indigo w-100" onclick="runDemo('exactly-once', 'exactlyOnceCount', 'exactlyOnceResult')">Запустить демо</button>
-                    <div id="exactlyOnceResult" class="result-area mt-3" style="display: none;"></div>
                 </div>
             </div>
         </div>
@@ -121,36 +126,30 @@
     async function runDemo(semantic, countInputId, resultDivId) {
         const count = document.getElementById(countInputId).value;
         const resultDiv = document.getElementById(resultDivId);
-
         resultDiv.style.display = 'block';
         resultDiv.textContent = 'Выполняется демонстрация...';
-        resultDiv.className = 'result-area mt-3 text-muted';
+        resultDiv.style.color = 'var(--c-text-muted)';
 
         try {
-            const params = new URLSearchParams({ count: count });
-            const response = await fetch('/delivery-semantics/' + semantic, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: params.toString()
+            const params = new URLSearchParams({ count });
+            const resp = await fetch('/delivery-semantics/' + semantic, {
+                method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString()
             });
-            const data = await response.json();
-
+            const data = await resp.json();
             if (data.success) {
-                let output = 'РЕЗУЛЬТАТ: УСПЕШНО\n\n';
-                output += 'Отправлено сообщений: ' + (data.sent || 'N/A') + '\n';
-                if (data.received !== undefined) output += 'Получено сообщений: ' + data.received + '\n';
-                if (data.confirmed !== undefined) output += 'Подтверждено: ' + data.confirmed + '\n';
-                if (data.transactional !== undefined) output += 'Транзакционно: ' + data.transactional + '\n';
-                output += '\n' + (data.description || '');
-                resultDiv.textContent = output;
-                resultDiv.className = 'result-area mt-3 text-success';
+                let out = 'РЕЗУЛЬТАТ: УСПЕШНО\n\nОтправлено: ' + (data.sent || 'N/A');
+                if (data.confirmed !== undefined) out += '\nПодтверждено: ' + data.confirmed;
+                if (data.transactional !== undefined) out += '\nТранзакционно: ' + data.transactional;
+                out += '\n\n' + (data.description || '');
+                resultDiv.textContent = out;
+                resultDiv.style.color = 'var(--c-success)';
             } else {
                 resultDiv.textContent = 'ОШИБКА\n\n' + (data.error || 'Неизвестная ошибка.');
-                resultDiv.className = 'result-area mt-3 text-danger';
+                resultDiv.style.color = 'var(--c-danger)';
             }
         } catch (err) {
             resultDiv.textContent = 'ОШИБКА\n\n' + err.message;
-            resultDiv.className = 'result-area mt-3 text-danger';
+            resultDiv.style.color = 'var(--c-danger)';
         }
     }
 </script>

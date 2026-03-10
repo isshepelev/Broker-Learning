@@ -8,14 +8,13 @@
 <div class="container container-main">
     <div class="page-header">
         <h2>Управление Jobs</h2>
-        <p>Управляйте scheduled-задачами producer-а и consumer-а. Фоновые задачи автоматически отправляют и обрабатывают сообщения через заданные интервалы.</p>
+        <p>Управляйте scheduled-задачами. Фоновые задачи автоматически отправляют и обрабатывают сообщения через заданные интервалы.</p>
     </div>
 
     <div class="theory-section">
         <h5>Scheduled Jobs</h5>
         <p><strong>Producer Job</strong> периодически отправляет сообщения в Kafka topic по расписанию, имитируя реальный источник данных.
-            <strong>Consumer Job</strong> опрашивает сообщения и обрабатывает их, демонстрируя паттерн непрерывного потребления.
-            Запускайте и останавливайте эти задачи, чтобы наблюдать, как Kafka обрабатывает непрерывные потоки сообщений.</p>
+            <strong>Consumer Job</strong> опрашивает сообщения и обрабатывает их, демонстрируя паттерн непрерывного потребления.</p>
     </div>
 
     <div class="row g-4 justify-content-center">
@@ -23,18 +22,18 @@
         <div class="col-md-6 col-lg-5">
             <div class="card h-100">
                 <div class="card-header bg-white d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0">Producer Job</h5>
+                    <h5 class="mb-0" style="font-size: 1rem;">Producer Job</h5>
                     <span id="producerStatus" class="badge status-badge-stopped">Остановлен</span>
                 </div>
                 <div class="card-body text-center">
-                    <div class="py-3">
+                    <div class="py-4">
                         <div class="stat-value" id="producerCounter">0</div>
                         <div class="stat-label">Сообщений отправлено</div>
                     </div>
                     <hr>
-                    <div class="d-flex gap-2">
-                        <button class="btn btn-indigo flex-fill" id="startProducerBtn" onclick="controlJob('producer', 'start')">Запустить</button>
-                        <button class="btn btn-outline-danger flex-fill" id="stopProducerBtn" onclick="controlJob('producer', 'stop')" disabled>Остановить</button>
+                    <div class="d-flex gap-3 mt-3">
+                        <button class="btn btn-primary-custom flex-fill py-2" id="startProducerBtn" onclick="controlJob('producer', 'start')">Запустить</button>
+                        <button class="btn btn-outline-danger flex-fill py-2" id="stopProducerBtn" onclick="controlJob('producer', 'stop')" disabled>Остановить</button>
                     </div>
                     <div id="producerJobResult" class="mt-3" style="display: none;"></div>
                 </div>
@@ -45,18 +44,18 @@
         <div class="col-md-6 col-lg-5">
             <div class="card h-100">
                 <div class="card-header bg-white d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0">Consumer Job</h5>
+                    <h5 class="mb-0" style="font-size: 1rem;">Consumer Job</h5>
                     <span id="consumerStatus" class="badge status-badge-stopped">Остановлен</span>
                 </div>
                 <div class="card-body text-center">
-                    <div class="py-3">
+                    <div class="py-4">
                         <div class="stat-value" id="consumerCounter">0</div>
                         <div class="stat-label">Последних сообщений</div>
                     </div>
                     <hr>
-                    <div class="d-flex gap-2">
-                        <button class="btn btn-indigo flex-fill" id="startConsumerBtn" onclick="controlJob('consumer', 'start')">Запустить</button>
-                        <button class="btn btn-outline-danger flex-fill" id="stopConsumerBtn" onclick="controlJob('consumer', 'stop')" disabled>Остановить</button>
+                    <div class="d-flex gap-3 mt-3">
+                        <button class="btn btn-primary-custom flex-fill py-2" id="startConsumerBtn" onclick="controlJob('consumer', 'start')">Запустить</button>
+                        <button class="btn btn-outline-danger flex-fill py-2" id="stopConsumerBtn" onclick="controlJob('consumer', 'stop')" disabled>Остановить</button>
                     </div>
                     <div id="consumerJobResult" class="mt-3" style="display: none;"></div>
                 </div>
@@ -71,13 +70,11 @@
     async function controlJob(jobType, action) {
         const resultDiv = document.getElementById(jobType + 'JobResult');
         try {
-            const response = await fetch('/jobs/' + jobType + '/' + action, { method: 'POST' });
-            const data = await response.json();
-            if (data.success) {
-                resultDiv.innerHTML = '<div class="alert alert-success py-2 mb-0">' + (data.message || 'Выполнено.') + '</div>';
-            } else {
-                resultDiv.innerHTML = '<div class="alert alert-danger py-2 mb-0">' + (data.error || 'Ошибка.') + '</div>';
-            }
+            const resp = await fetch('/jobs/' + jobType + '/' + action, { method: 'POST' });
+            const data = await resp.json();
+            resultDiv.innerHTML = data.success
+                ? '<div class="alert alert-success py-2 mb-0">' + (data.message || 'Выполнено.') + '</div>'
+                : '<div class="alert alert-danger py-2 mb-0">' + (data.error || 'Ошибка.') + '</div>';
             resultDiv.style.display = 'block';
             refreshStatuses();
         } catch (err) {
@@ -88,25 +85,23 @@
 
     async function refreshStatuses() {
         try {
-            const response = await fetch('/jobs/status');
-            const data = await response.json();
+            const resp = await fetch('/jobs/status');
+            const data = await resp.json();
 
-            const producerRunning = data.producerJob && data.producerJob.running;
-            document.getElementById('producerStatus').textContent = producerRunning ? 'Работает' : 'Остановлен';
-            document.getElementById('producerStatus').className = 'badge ' + (producerRunning ? 'status-badge-running' : 'status-badge-stopped');
-            document.getElementById('startProducerBtn').disabled = producerRunning;
-            document.getElementById('stopProducerBtn').disabled = !producerRunning;
+            const pRun = data.producerJob && data.producerJob.running;
+            document.getElementById('producerStatus').textContent = pRun ? 'Работает' : 'Остановлен';
+            document.getElementById('producerStatus').className = 'badge ' + (pRun ? 'status-badge-running' : 'status-badge-stopped');
+            document.getElementById('startProducerBtn').disabled = pRun;
+            document.getElementById('stopProducerBtn').disabled = !pRun;
             document.getElementById('producerCounter').textContent = data.producerJob ? (data.producerJob.messagesProduced || 0) : 0;
 
-            const consumerRunning = data.consumerJob && data.consumerJob.running;
-            document.getElementById('consumerStatus').textContent = consumerRunning ? 'Работает' : 'Остановлен';
-            document.getElementById('consumerStatus').className = 'badge ' + (consumerRunning ? 'status-badge-running' : 'status-badge-stopped');
-            document.getElementById('startConsumerBtn').disabled = consumerRunning;
-            document.getElementById('stopConsumerBtn').disabled = !consumerRunning;
+            const cRun = data.consumerJob && data.consumerJob.running;
+            document.getElementById('consumerStatus').textContent = cRun ? 'Работает' : 'Остановлен';
+            document.getElementById('consumerStatus').className = 'badge ' + (cRun ? 'status-badge-running' : 'status-badge-stopped');
+            document.getElementById('startConsumerBtn').disabled = cRun;
+            document.getElementById('stopConsumerBtn').disabled = !cRun;
             document.getElementById('consumerCounter').textContent = data.consumerJob ? (data.consumerJob.lastMessagesCount || 0) : 0;
-        } catch (err) {
-            console.error('Не удалось обновить статусы:', err);
-        }
+        } catch (err) { console.error(err); }
     }
 
     refreshStatuses();

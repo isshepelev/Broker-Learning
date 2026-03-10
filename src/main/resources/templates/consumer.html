@@ -8,7 +8,7 @@
 <div class="container container-main">
     <div class="page-header">
         <h2>Consumer</h2>
-        <p>Наблюдайте за сообщениями из Kafka topic-ов в реальном времени через Server-Sent Events (SSE). Лента обновляется автоматически при поступлении новых сообщений.</p>
+        <p>Наблюдайте за сообщениями из Kafka topic-ов в реальном времени через SSE. Лента обновляется автоматически при поступлении новых сообщений.</p>
     </div>
 
     <div class="theory-section">
@@ -21,23 +21,23 @@
     </div>
 
     <div class="row g-4">
-        <!-- Лента реального времени -->
+        <!-- Лента -->
         <div class="col-lg-6">
             <div class="card">
                 <div class="card-header bg-white d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0">
+                    <h5 class="mb-0" style="font-size: 1rem;">
                         Лента сообщений
                         <span id="sseStatus" class="badge status-badge-stopped ms-2">Отключено</span>
                     </h5>
-                    <div>
-                        <button class="btn btn-sm btn-outline-indigo" id="connectBtn" onclick="connectSSE()">Подключить</button>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-sm btn-outline-custom" id="connectBtn" onclick="connectSSE()">Подключить</button>
                         <button class="btn btn-sm btn-outline-secondary" id="disconnectBtn" onclick="disconnectSSE()" disabled>Отключить</button>
                         <button class="btn btn-sm btn-outline-danger" onclick="clearFeed()">Очистить</button>
                     </div>
                 </div>
                 <div class="card-body" style="max-height: 500px; overflow-y: auto;" id="sseFeedContainer">
                     <div id="sseFeed">
-                        <p class="text-muted" id="ssePlaceholder">Нажмите &laquo;Подключить&raquo;, чтобы начать получать сообщения в реальном времени...</p>
+                        <p class="text-muted text-center" id="ssePlaceholder">Нажмите &laquo;Подключить&raquo; для получения сообщений в реальном времени...</p>
                     </div>
                 </div>
                 <div class="card-footer bg-white">
@@ -46,15 +46,15 @@
             </div>
         </div>
 
-        <!-- Историческая таблица -->
+        <!-- История -->
         <div class="col-lg-6">
             <div class="card">
                 <div class="card-header bg-white">
-                    <h5 class="mb-0">Ранее полученные сообщения</h5>
+                    <h5 class="mb-0" style="font-size: 1rem;">Ранее полученные сообщения</h5>
                 </div>
                 <div class="card-body p-0">
                     <div th:if="${messages == null or messages.isEmpty()}" class="p-4 text-center">
-                        <p class="text-muted mb-0">Полученных сообщений пока нет. Они появятся, когда consumer-ы начнут обработку.</p>
+                        <p class="text-muted mb-0">Полученных сообщений пока нет.</p>
                     </div>
                     <div th:unless="${messages == null or messages.isEmpty()}" class="table-responsive" style="max-height: 500px; overflow-y: auto;">
                         <table class="table table-hover table-sm mb-0">
@@ -72,12 +72,10 @@
                             <tr th:each="msg : ${messages}">
                                 <td><span class="badge badge-topic" th:text="${msg.topic}">topic</span></td>
                                 <td class="text-muted" th:text="${msg.messageKey != null ? msg.messageKey : '-'}">key</td>
-                                <td>
-                                    <span th:text="${msg.messageValue != null and msg.messageValue.length() > 40 ? msg.messageValue.substring(0, 40) + '...' : (msg.messageValue != null ? msg.messageValue : '-')}">value</span>
-                                </td>
+                                <td><span th:text="${msg.messageValue != null and msg.messageValue.length() > 40 ? msg.messageValue.substring(0, 40) + '...' : (msg.messageValue != null ? msg.messageValue : '-')}">value</span></td>
                                 <td th:text="${msg.partitionNum}">0</td>
                                 <td th:text="${msg.offsetNum}">0</td>
-                                <td class="text-muted" th:text="${msg.timestamp}">time</td>
+                                <td class="text-muted" th:text="${msg.timestamp}">--</td>
                             </tr>
                             </tbody>
                         </table>
@@ -91,52 +89,36 @@
 <div th:replace="~{fragments/layout :: scripts}"></div>
 
 <script>
-    let eventSource = null;
-    let sseMessageCount = 0;
+    let eventSource = null, sseMessageCount = 0;
 
     function connectSSE() {
         if (eventSource) eventSource.close();
         eventSource = new EventSource('/consumer/stream');
-
         eventSource.addEventListener('kafka-message', function(event) {
             const data = JSON.parse(event.data);
             sseMessageCount++;
             document.getElementById('sseCount').textContent = sseMessageCount;
-
             const placeholder = document.getElementById('ssePlaceholder');
             if (placeholder) placeholder.remove();
-
             const feed = document.getElementById('sseFeed');
             const item = document.createElement('div');
             item.className = 'sse-message';
             const truncValue = data.value && data.value.length > 80 ? data.value.substring(0, 80) + '...' : (data.value || '-');
             const ts = data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : '';
-
             item.innerHTML = `
-                <div class="d-flex justify-content-between align-items-start">
-                    <div>
-                        <span class="badge badge-topic">${data.topic || '-'}</span>
-                        <small class="text-muted ms-2">P:${data.partition} O:${data.offset}</small>
-                    </div>
-                    <small class="text-muted">${ts}</small>
-                </div>
-                <div class="mt-1">
-                    <small><strong>Key:</strong> ${data.key || '-'}</small><br>
-                    <small><strong>Value:</strong> ${truncValue}</small>
-                </div>
-            `;
+                <div class="d-flex justify-content-between"><div><span class="badge badge-topic">${data.topic || '-'}</span>
+                <small class="text-muted ms-2">P:${data.partition} O:${data.offset}</small></div><small class="text-muted">${ts}</small></div>
+                <div class="mt-1"><small><strong>Key:</strong> ${data.key || '-'}</small><br><small><strong>Value:</strong> ${truncValue}</small></div>`;
             feed.prepend(item);
             while (feed.children.length > 100) feed.removeChild(feed.lastChild);
             document.getElementById('sseFeedContainer').scrollTop = 0;
         });
-
         eventSource.onopen = function() {
             document.getElementById('sseStatus').textContent = 'Подключено';
             document.getElementById('sseStatus').className = 'badge status-badge-running ms-2';
             document.getElementById('connectBtn').disabled = true;
             document.getElementById('disconnectBtn').disabled = false;
         };
-
         eventSource.onerror = function() {
             document.getElementById('sseStatus').textContent = 'Отключено';
             document.getElementById('sseStatus').className = 'badge status-badge-stopped ms-2';
@@ -154,7 +136,7 @@
     }
 
     function clearFeed() {
-        document.getElementById('sseFeed').innerHTML = '<p class="text-muted" id="ssePlaceholder">Лента очищена. Сообщения продолжат поступать, если подключение активно...</p>';
+        document.getElementById('sseFeed').innerHTML = '<p class="text-muted text-center" id="ssePlaceholder">Лента очищена...</p>';
         sseMessageCount = 0;
         document.getElementById('sseCount').textContent = '0';
     }
