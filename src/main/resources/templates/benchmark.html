@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Broker Learning - Benchmark')}"></head>
+<body>
+
+<nav th:replace="~{fragments/layout :: navbar}"></nav>
+
+<div class="container container-main">
+    <div class="page-header">
+        <h2>Сравнение производительности</h2>
+        <p>Отправьте одинаковое количество сообщений в разных режимах и сравните скорость. Результат зависит от настроек Kafka и сети.</p>
+    </div>
+
+    <div class="theory-section">
+        <h5>Почему скорость отличается?</h5>
+        <p><strong>Fire-and-Forget</strong> — не ждёт ответа, максимальная скорость.
+            <strong>Async (Callback)</strong> — отправляет все сразу, потом ждёт подтверждения.
+            <strong>Sync</strong> — ждёт подтверждения каждого сообщения по одному.
+            <strong>Transactional</strong> — оборачивает всё в транзакцию с дополнительными накладными расходами.</p>
+    </div>
+
+    <!-- Настройки -->
+    <div class="card mb-4">
+        <div class="card-header bg-white">
+            <h5 class="mb-0" style="font-size: 1rem;">Параметры теста</h5>
+        </div>
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-4">
+                    <label for="msgCount" class="form-label">Количество сообщений</label>
+                    <input type="number" class="form-control" id="msgCount" value="1000" min="10" max="10000">
+                </div>
+                <div class="col-md-3">
+                    <div class="d-flex flex-wrap gap-2">
+                        <button class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('msgCount').value=100">100</button>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('msgCount').value=500">500</button>
+                        <button class="btn btn-sm btn-outline-secondary active" onclick="document.getElementById('msgCount').value=1000">1 000</button>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('msgCount').value=5000">5 000</button>
+                    </div>
+                </div>
+            </div>
+            <div style="margin-top: 24px;">
+                <button class="btn btn-primary-custom px-5 py-2" id="runBtn" onclick="runBenchmark()">Запустить тест</button>
+            </div>
+            <div id="progressWrap" style="display:none; margin-top: 24px;">
+                <div class="bench-progress">
+                    <div class="bench-progress-bar" id="progressBar"></div>
+                </div>
+                <small class="text-muted d-block" style="margin-top: 8px;" id="progressText">Тестирование...</small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Результат -->
+    <div id="resultSection" style="display:none;">
+        <!-- График времени -->
+        <div class="card mb-4">
+            <div class="card-header bg-white">
+                <h5 class="mb-0" style="font-size: 1rem;">Время отправки (мс) — меньше = быстрее</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="timeChart" height="100"></canvas>
+            </div>
+        </div>
+
+        <!-- График throughput -->
+        <div class="card mb-4">
+            <div class="card-header bg-white">
+                <h5 class="mb-0" style="font-size: 1rem;">Throughput (сообщений/сек) — больше = быстрее</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="throughputChart" height="100"></canvas>
+            </div>
+        </div>
+
+        <!-- Карточки -->
+        <div class="row g-3 mb-4" id="cardsRow"></div>
+
+        <!-- Таблица -->
+        <div class="card">
+            <div class="card-header bg-white">
+                <h5 class="mb-0" style="font-size: 1rem;">Детали</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover table-sm mb-0">
+                        <thead>
+                        <tr>
+                            <th>Режим</th>
+                            <th>Сообщений</th>
+                            <th>Время (мс)</th>
+                            <th>Сообщ/сек</th>
+                            <th>Во сколько раз медленнее</th>
+                        </tr>
+                        </thead>
+                        <tbody id="tableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div th:replace="~{fragments/layout :: scripts}"></div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+
+<style>
+    .bench-progress {
+        height: 6px;
+        background: var(--c-border);
+        border-radius: 3px;
+        overflow: hidden;
+        margin-bottom: 6px;
+    }
+    .bench-progress-bar {
+        height: 100%;
+        background: linear-gradient(90deg, var(--c-primary), #14b8a6);
+        border-radius: 3px;
+        width: 0%;
+        transition: width .3s ease;
+        animation: benchPulse 1.5s infinite;
+    }
+    @keyframes benchPulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: .6; }
+    }
+    .bench-card {
+        border-radius: 14px;
+        border: 2px solid var(--c-border);
+        padding: 20px;
+        text-align: center;
+        transition: border-color .3s, transform .3s;
+        background: #fff;
+        position: relative;
+        overflow: hidden;
+    }
+    .bench-card:hover {
+        transform: translateY(-2px);
+    }
+    .bench-card.winner {
+        border-color: var(--c-primary);
+        box-shadow: 0 6px 24px rgba(13,148,136,.15);
+    }
+    .bench-winner-badge {
+        display: inline-block;
+        background: var(--c-primary);
+        color: #fff;
+        font-size: .65rem;
+        font-weight: 800;
+        padding: 3px 12px;
+        border-radius: 20px;
+        letter-spacing: .04em;
+        margin-bottom: 8px;
+    }
+    .bench-mode {
+        font-weight: 800;
+        font-size: 1.05rem;
+        margin-bottom: 4px;
+    }
+    .bench-time {
+        font-size: 2.2rem;
+        font-weight: 800;
+        line-height: 1.1;
+    }
+    .bench-unit {
+        font-size: .85rem;
+        color: var(--c-text-muted);
+    }
+    .bench-throughput {
+        font-size: .9rem;
+        color: var(--c-text-secondary);
+        margin-top: 6px;
+    }
+    .bench-desc {
+        font-size: .75rem;
+        color: var(--c-text-muted);
+        margin-top: 8px;
+        line-height: 1.4;
+    }
+    .slowdown-badge {
+        display: inline-block;
+        padding: 2px 10px;
+        border-radius: 20px;
+        font-size: .78rem;
+        font-weight: 700;
+    }
+</style>
+
+<script>
+    let timeChart, throughputBenchChart;
+
+    function initCharts() {
+        const ctx1 = document.getElementById('timeChart').getContext('2d');
+        timeChart = new Chart(ctx1, {
+            type: 'bar',
+            data: { labels: [], datasets: [{ data: [], backgroundColor: [], borderRadius: 10, barPercentage: 0.5 }] },
+            options: {
+                responsive: true,
+                animation: { duration: 800, easing: 'easeOutQuart' },
+                plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ctx.raw + ' мс' } } },
+                scales: {
+                    x: { grid: { display: false }, ticks: { font: { size: 13, weight: 700 } } },
+                    y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,.05)' }, ticks: { callback: v => v + ' мс' } }
+                }
+            }
+        });
+
+        const ctx2 = document.getElementById('throughputChart').getContext('2d');
+        throughputBenchChart = new Chart(ctx2, {
+            type: 'bar',
+            data: { labels: [], datasets: [{ data: [], backgroundColor: [], borderRadius: 10, barPercentage: 0.5 }] },
+            options: {
+                responsive: true,
+                animation: { duration: 800, easing: 'easeOutQuart', delay: 400 },
+                plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ctx.raw.toLocaleString() + ' msg/sec' } } },
+                scales: {
+                    x: { grid: { display: false }, ticks: { font: { size: 13, weight: 700 } } },
+                    y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,.05)' }, ticks: { callback: v => v.toLocaleString() } }
+                }
+            }
+        });
+    }
+
+    async function runBenchmark() {
+        const count = parseInt(document.getElementById('msgCount').value) || 1000;
+        const btn = document.getElementById('runBtn');
+        const progress = document.getElementById('progressWrap');
+
+        btn.disabled = true;
+        btn.textContent = 'Тестирование...';
+        progress.style.display = '';
+        document.getElementById('progressBar').style.width = '30%';
+        document.getElementById('progressText').textContent = 'Тестируем 4 режима с ' + count.toLocaleString() + ' сообщениями...';
+        document.getElementById('resultSection').style.display = 'none';
+
+        // Анимируем прогресс
+        let pw = 30;
+        const pi = setInterval(() => { pw = Math.min(pw + 5, 90); document.getElementById('progressBar').style.width = pw + '%'; }, 800);
+
+        try {
+            const resp = await fetch('/benchmark/run', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ count })
+            });
+            const data = await resp.json();
+
+            clearInterval(pi);
+            document.getElementById('progressBar').style.width = '100%';
+            document.getElementById('progressText').textContent = 'Готово!';
+
+            if (!data.success) {
+                alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+                return;
+            }
+
+            setTimeout(() => {
+                progress.style.display = 'none';
+                renderResults(data.results, count);
+            }, 500);
+
+        } catch (err) {
+            clearInterval(pi);
+            alert('Ошибка: ' + err.message);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Запустить тест';
+        }
+    }
+
+    function renderResults(results, count) {
+        document.getElementById('resultSection').style.display = '';
+
+        const labels = results.map(r => r.mode);
+        const times = results.map(r => r.timeMs);
+        const throughputs = results.map(r => r.msgPerSec);
+        const colors = results.map(r => r.color);
+        const minTime = Math.min(...times);
+
+        // Графики
+        if (!timeChart) initCharts();
+        timeChart.data.labels = labels;
+        timeChart.data.datasets[0].data = times;
+        timeChart.data.datasets[0].backgroundColor = colors.map(c => c + 'cc');
+        timeChart.update();
+
+        throughputBenchChart.data.labels = labels;
+        throughputBenchChart.data.datasets[0].data = throughputs;
+        throughputBenchChart.data.datasets[0].backgroundColor = colors.map(c => c + 'cc');
+        throughputBenchChart.update();
+
+        // Карточки
+        const cardsRow = document.getElementById('cardsRow');
+        cardsRow.innerHTML = '';
+        results.forEach(function(r) {
+            const isWinner = r.timeMs === minTime;
+            const slowdown = (r.timeMs / minTime).toFixed(1);
+            const card = document.createElement('div');
+            card.className = 'col-md-3';
+            card.innerHTML =
+                '<div class="bench-card' + (isWinner ? ' winner' : '') + '" style="border-color:' + r.color + '30;">' +
+                    (isWinner ? '<div class="bench-winner-badge">БЫСТРЕЕ ВСЕХ</div>' : '') +
+                    '<div class="bench-mode" style="color:' + r.color + ';">' + r.mode + '</div>' +
+                    '<div class="bench-time" style="color:' + r.color + ';">' + r.timeMs + '</div>' +
+                    '<div class="bench-unit">мс</div>' +
+                    '<div class="bench-throughput">' + r.msgPerSec.toLocaleString() + ' msg/sec</div>' +
+                    '<div class="bench-desc">' + r.description + '</div>' +
+                '</div>';
+            cardsRow.appendChild(card);
+        });
+
+        // Таблица
+        const tbody = document.getElementById('tableBody');
+        tbody.innerHTML = '';
+        results.forEach(function(r) {
+            const slowdown = (r.timeMs / minTime);
+            let badgeStyle, badgeText;
+            if (slowdown <= 1.05) { badgeStyle = 'background:#dcfce7;color:#166534;'; badgeText = 'Базовый'; }
+            else if (slowdown < 3) { badgeStyle = 'background:#fef3c7;color:#92400e;'; badgeText = 'x' + slowdown.toFixed(1); }
+            else { badgeStyle = 'background:#fee2e2;color:#991b1b;'; badgeText = 'x' + slowdown.toFixed(1); }
+
+            const tr = document.createElement('tr');
+            tr.innerHTML =
+                '<td><strong style="color:' + r.color + ';">' + r.mode + '</strong></td>' +
+                '<td>' + r.count.toLocaleString() + '</td>' +
+                '<td><strong>' + r.timeMs + '</strong> мс</td>' +
+                '<td>' + r.msgPerSec.toLocaleString() + '</td>' +
+                '<td><span class="slowdown-badge" style="' + badgeStyle + '">' + badgeText + '</span></td>';
+            tbody.appendChild(tr);
+        });
+
+        document.getElementById('resultSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    document.addEventListener('DOMContentLoaded', initCharts);
+</script>
+</body>
+</html>

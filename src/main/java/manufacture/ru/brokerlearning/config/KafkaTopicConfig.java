@@ -21,4 +21,9 @@ public class KafkaTopicConfig {
     public NewTopic ordersTopic() {
         return new NewTopic("orders-topic", 3, (short) 1);
     }
+
+    @Bean
+    public NewTopic benchmarkTopic() {
+        return new NewTopic("benchmark-topic", 3, (short) 1);
+    }
 }
