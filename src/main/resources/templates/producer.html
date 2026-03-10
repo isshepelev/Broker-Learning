@@ -30,14 +30,10 @@
                     <form id="sendForm">
                         <div class="mb-3">
                             <label for="topicSelect" class="form-label">Topic</label>
-                            <div class="input-group">
-                                <select class="form-select" id="topicSelect" onchange="onTopicSelectChange()">
-                                    <option value="">-- Выберите topic --</option>
-                                    <option th:each="t : ${topics}" th:value="${t}" th:text="${t}">topic</option>
-                                    <option value="__custom__">Ввести вручную...</option>
-                                </select>
-                                <input type="text" class="form-control d-none" id="topicCustom" placeholder="Название topic-а">
-                            </div>
+                            <select class="form-select" id="topicSelect">
+                                <option value="">-- Выберите topic --</option>
+                                <option th:each="t : ${topics}" th:value="${t}" th:text="${t}">topic</option>
+                            </select>
                         </div>
 
                         <div class="mb-3">
@@ -119,16 +115,8 @@
 <script>
     let sendHistoryItems = [];
 
-    function onTopicSelectChange() {
-        const select = document.getElementById('topicSelect');
-        const custom = document.getElementById('topicCustom');
-        if (select.value === '__custom__') { custom.classList.remove('d-none'); custom.focus(); }
-        else { custom.classList.add('d-none'); custom.value = ''; }
-    }
-
     function getSelectedTopic() {
-        const select = document.getElementById('topicSelect');
-        return select.value === '__custom__' ? document.getElementById('topicCustom').value.trim() : select.value;
+        return document.getElementById('topicSelect').value;
     }
 
     function addHeaderRow() {

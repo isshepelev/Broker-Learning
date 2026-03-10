@@ -8,7 +8,7 @@
 <div class="container container-main">
     <div class="page-header">
         <h2>Consumer</h2>
-        <p>Наблюдайте за сообщениями из Kafka topic-ов в реальном времени через SSE. Лента обновляется автоматически при поступлении новых сообщений.</p>
+        <p>Здесь в реальном времени отображаются сообщения из <strong>всех</strong> Kafka topic-ов. Отправьте сообщение через Producer в любой topic — оно мгновенно появится в ленте.</p>
     </div>
 
     <div class="theory-section">
@@ -37,7 +37,7 @@
                 </div>
                 <div class="card-body" style="max-height: 500px; overflow-y: auto;" id="sseFeedContainer">
                     <div id="sseFeed">
-                        <p class="text-muted text-center" id="ssePlaceholder">Нажмите &laquo;Подключить&raquo; для получения сообщений в реальном времени...</p>
+                        <p class="text-muted text-center" id="ssePlaceholder">Подключение... Отправьте сообщение через Producer — оно появится здесь.</p>
                     </div>
                 </div>
                 <div class="card-footer bg-white">
@@ -90,6 +90,9 @@
 
 <script>
     let eventSource = null, sseMessageCount = 0;
+
+    // Автоматическое подключение при загрузке страницы
+    document.addEventListener('DOMContentLoaded', function() { connectSSE(); });
 
     function connectSSE() {
         if (eventSource) eventSource.close();

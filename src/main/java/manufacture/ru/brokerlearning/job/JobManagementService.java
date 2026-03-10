@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -17,12 +18,10 @@ public class JobManagementService {
 
     public void startProducerJob() {
         scheduledProducerJob.start();
-        log.info("Producer job started via management service");
     }
 
     public void stopProducerJob() {
         scheduledProducerJob.stop();
-        log.info("Producer job stopped via management service");
     }
 
     public boolean isProducerJobRunning() {
@@ -31,12 +30,10 @@ public class JobManagementService {
 
     public void startConsumerJob() {
         scheduledConsumerJob.start();
-        log.info("Consumer job started via management service");
     }
 
     public void stopConsumerJob() {
         scheduledConsumerJob.stop();
-        log.info("Consumer job stopped via management service");
     }
 
     public boolean isConsumerJobRunning() {
@@ -49,10 +46,12 @@ public class JobManagementService {
         Map<String, Object> producerStatus = new HashMap<>();
         producerStatus.put("running", scheduledProducerJob.isRunning());
         producerStatus.put("messagesProduced", scheduledProducerJob.getCounter());
+        producerStatus.put("recentMessages", scheduledProducerJob.getRecentMessages());
 
         Map<String, Object> consumerStatus = new HashMap<>();
         consumerStatus.put("running", scheduledConsumerJob.isRunning());
-        consumerStatus.put("lastMessagesCount", scheduledConsumerJob.getLastMessages().size());
+        consumerStatus.put("messagesConsumed", scheduledConsumerJob.getCounter());
+        consumerStatus.put("recentMessages", scheduledConsumerJob.getRecentMessages());
 
         statuses.put("producerJob", producerStatus);
         statuses.put("consumerJob", consumerStatus);
