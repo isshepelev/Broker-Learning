@@ -24,7 +24,8 @@ public class SimpleConsumer {
     private static final Set<String> SEMANTICS_TOPICS = Set.of(
             "at-most-once-topic", "at-least-once-topic", "exactly-once-topic",
             "benchmark-topic", "replay-topic", "compare-topic",
-            "dlq-compare-topic", "dlq-compare-topic.DLT"
+            "dlq-compare-topic", "dlq-compare-topic.DLT",
+            "ordering-1p-topic", "ordering-5p-topic"
     );
 
     private final MessageHistoryService messageHistoryService;
