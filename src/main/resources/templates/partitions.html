@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Broker Learning - Partitions')}"></head>
+<body>
+
+<nav th:replace="~{fragments/layout :: navbar}"></nav>
+
+<div class="container container-main">
+    <div class="page-header">
+        <h2>Визуализация Partitions</h2>
+        <p>Отправьте сообщения с разными ключами и наглядно увидите, как Kafka распределяет их по partitions.</p>
+    </div>
+
+    <div class="theory-section">
+        <h5>Как Kafka выбирает partition?</h5>
+        <p>Если указан <strong>key</strong>, Kafka вычисляет <code>hash(key) % число_partitions</code>.
+            Одинаковые ключи <strong>всегда</strong> попадают в один и тот же partition — это гарантирует порядок обработки.
+            Если ключ не указан — Kafka распределяет сообщения по round-robin.</p>
+    </div>
+
+    <!-- Настройки -->
+    <div class="card mb-4">
+        <div class="card-header bg-white">
+            <h5 class="mb-0" style="font-size: 1rem;">Настройки эксперимента</h5>
+        </div>
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-3">
+                    <label for="topicSelect" class="form-label">Topic</label>
+                    <select class="form-select" id="topicSelect">
+                        <option value="">-- Выберите --</option>
+                        <option th:each="t : ${topics}" th:value="${t}" th:text="${t}">topic</option>
+                    </select>
+                </div>
+                <div class="col-md-5">
+                    <label class="form-label">Ключи сообщений</label>
+                    <input type="text" class="form-control" id="keysInput" value="user-1, user-2, user-3, user-4, user-5" placeholder="user-1, user-2, user-3">
+                    <small class="text-muted">Через запятую. Каждый ключ — отдельный "источник" данных.</small>
+                </div>
+                <div class="col-md-2">
+                    <label for="perKey" class="form-label">На каждый ключ</label>
+                    <input type="number" class="form-control" id="perKey" value="3" min="1" max="50">
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-primary-custom w-100 py-2" id="runBtn" onclick="runExperiment()">Запустить</button>
+                </div>
+            </div>
+            <div id="presets" class="mt-3">
+                <small class="text-muted me-2">Пресеты:</small>
+                <button class="btn btn-sm btn-outline-secondary me-1" onclick="applyPreset('user-1, user-2, user-3', 3)">3 пользователя</button>
+                <button class="btn btn-sm btn-outline-secondary me-1" onclick="applyPreset('order-100, order-200, order-300, order-400, order-500', 2)">5 заказов</button>
+                <button class="btn btn-sm btn-outline-secondary me-1" onclick="applyPreset('sensor-A, sensor-B, sensor-C, sensor-D, sensor-E, sensor-F, sensor-G, sensor-H', 1)">8 датчиков</button>
+                <button class="btn btn-sm btn-outline-secondary" onclick="applyPreset('', 5)">Без ключа (round-robin)</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Результат -->
+    <div id="resultSection" style="display: none;">
+        <!-- Статистика -->
+        <div class="row g-3 mb-4" id="statsRow"></div>
+
+        <!-- Визуализация partitions -->
+        <div class="card mb-4">
+            <div class="card-header bg-white">
+                <h5 class="mb-0" style="font-size: 1rem;">Распределение по Partitions</h5>
+            </div>
+            <div class="card-body">
+                <div id="partitionViz" class="partition-viz-container"></div>
+            </div>
+        </div>
+
+        <!-- Лог сообщений -->
+        <div class="card">
+            <div class="card-header bg-white">
+                <h5 class="mb-0" style="font-size: 1rem;">Лог отправленных сообщений</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive" style="max-height: 350px; overflow-y: auto;">
+                    <table class="table table-hover table-sm mb-0">
+                        <thead style="position: sticky; top: 0;">
+                        <tr>
+                            <th style="width:40px;">#</th>
+                            <th>Key</th>
+                            <th>Value</th>
+                            <th>Partition</th>
+                            <th>Offset</th>
+                        </tr>
+                        </thead>
+                        <tbody id="logBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div th:replace="~{fragments/layout :: scripts}"></div>
+
+<style>
+    .partition-viz-container {
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+    .partition-column {
+        flex: 1;
+        min-width: 160px;
+        max-width: 260px;
+        border-radius: 14px;
+        background: #f8fafb;
+        border: 2px solid var(--c-border);
+        overflow: hidden;
+        transition: border-color .3s;
+    }
+    .partition-column.has-messages {
+        border-color: var(--c-primary);
+    }
+    .partition-header {
+        background: linear-gradient(135deg, var(--c-primary), #0f766e);
+        color: #fff;
+        padding: 12px 16px;
+        text-align: center;
+        font-weight: 700;
+        font-size: .95rem;
+    }
+    .partition-header .p-count {
+        display: block;
+        font-size: .75rem;
+        font-weight: 400;
+        opacity: .85;
+        margin-top: 2px;
+    }
+    .partition-empty {
+        border-color: #e5e7eb;
+    }
+    .partition-empty .partition-header {
+        background: linear-gradient(135deg, #9ca3af, #6b7280);
+    }
+    .partition-body {
+        padding: 8px;
+        min-height: 60px;
+        max-height: 340px;
+        overflow-y: auto;
+    }
+    .partition-body:empty::after {
+        content: 'Пусто';
+        display: block;
+        text-align: center;
+        color: var(--c-text-muted);
+        font-size: .8rem;
+        padding: 20px 0;
+    }
+    .msg-chip {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 10px;
+        margin-bottom: 5px;
+        border-radius: 8px;
+        font-size: .8rem;
+        animation: chipSlide .4s ease;
+        border-left: 4px solid;
+    }
+    .msg-chip .chip-key {
+        font-weight: 700;
+        white-space: nowrap;
+    }
+    .msg-chip .chip-offset {
+        margin-left: auto;
+        font-size: .7rem;
+        color: var(--c-text-muted);
+        white-space: nowrap;
+    }
+    @keyframes chipSlide {
+        from { opacity: 0; transform: translateX(-12px); }
+        to { opacity: 1; transform: translateX(0); }
+    }
+
+    .stat-box {
+        text-align: center;
+        padding: 20px;
+        border-radius: 12px;
+        background: #fff;
+        border: 1px solid var(--c-border);
+    }
+    .stat-box .stat-num {
+        font-size: 2rem;
+        font-weight: 800;
+        color: var(--c-primary);
+        line-height: 1;
+    }
+    .stat-box .stat-lbl {
+        font-size: .82rem;
+        color: var(--c-text-muted);
+        margin-top: 4px;
+    }
+</style>
+
+<script>
+    const KEY_COLORS = [
+        { bg: 'rgba(13,148,136,.1)',  border: '#0d9488' },
+        { bg: 'rgba(59,130,246,.1)',  border: '#3b82f6' },
+        { bg: 'rgba(245,158,11,.1)', border: '#f59e0b' },
+        { bg: 'rgba(239,68,68,.1)',  border: '#ef4444' },
+        { bg: 'rgba(168,85,247,.1)', border: '#a855f7' },
+        { bg: 'rgba(34,197,94,.1)',  border: '#22c55e' },
+        { bg: 'rgba(236,72,153,.1)', border: '#ec4899' },
+        { bg: 'rgba(20,184,166,.1)', border: '#14b8a6' },
+        { bg: 'rgba(249,115,22,.1)', border: '#f97316' },
+        { bg: 'rgba(99,102,241,.1)', border: '#6366f1' },
+    ];
+
+    function getKeyColor(key, keyMap) {
+        if (!keyMap.has(key)) {
+            keyMap.set(key, KEY_COLORS[keyMap.size % KEY_COLORS.length]);
+        }
+        return keyMap.get(key);
+    }
+
+    function applyPreset(keys, perKey) {
+        document.getElementById('keysInput').value = keys;
+        document.getElementById('perKey').value = perKey;
+    }
+
+    async function runExperiment() {
+        const topic = document.getElementById('topicSelect').value;
+        if (!topic) { alert('Выберите topic.'); return; }
+
+        const keysRaw = document.getElementById('keysInput').value.trim();
+        const keys = keysRaw ? keysRaw.split(',').map(k => k.trim()).filter(k => k) : [null];
+        const perKey = parseInt(document.getElementById('perKey').value) || 1;
+
+        const btn = document.getElementById('runBtn');
+        btn.disabled = true;
+        btn.textContent = 'Отправка...';
+
+        try {
+            const resp = await fetch('/partitions/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ topic, keys, messagesPerKey: perKey })
+            });
+            const data = await resp.json();
+
+            if (!data.success) {
+                alert('Ошибка: ' + (data.error || 'Неизвестная ошибка'));
+                return;
+            }
+
+            renderResults(data, keys);
+        } catch (err) {
+            alert('Ошибка: ' + err.message);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Запустить';
+        }
+    }
+
+    function renderResults(data, keys) {
+        document.getElementById('resultSection').style.display = '';
+
+        const keyMap = new Map();
+        const uniqueKeys = [...new Set(data.messages.map(m => m.key || 'null'))];
+        uniqueKeys.forEach(k => getKeyColor(k, keyMap));
+
+        const usedPartitions = Object.keys(data.byPartition).length;
+        const totalPartitions = data.totalPartitions || usedPartitions;
+
+        // Статистика
+        document.getElementById('statsRow').innerHTML =
+            '<div class="col-sm-3"><div class="stat-box"><div class="stat-num">' + data.totalMessages + '</div><div class="stat-lbl">Сообщений отправлено</div></div></div>' +
+            '<div class="col-sm-3"><div class="stat-box"><div class="stat-num">' + uniqueKeys.length + '</div><div class="stat-lbl">Уникальных ключей</div></div></div>' +
+            '<div class="col-sm-3"><div class="stat-box"><div class="stat-num">' + usedPartitions + ' / ' + totalPartitions + '</div><div class="stat-lbl">Partitions использовано</div></div></div>' +
+            '<div class="col-sm-3"><div class="stat-box"><div class="stat-num">' + totalPartitions + '</div><div class="stat-lbl">Partitions всего</div></div></div>';
+
+        // Визуализация partitions
+        const viz = document.getElementById('partitionViz');
+        viz.innerHTML = '';
+
+        for (let p = 0; p < totalPartitions; p++) {
+            const col = document.createElement('div');
+            const msgs = data.byPartition[p] || [];
+            col.className = 'partition-column' + (msgs.length > 0 ? ' has-messages' : ' partition-empty');
+
+            const header = document.createElement('div');
+            header.className = 'partition-header';
+            header.innerHTML = 'Partition ' + p + '<span class="p-count">' + msgs.length + ' сообщ.</span>';
+            col.appendChild(header);
+
+            const body = document.createElement('div');
+            body.className = 'partition-body';
+
+            msgs.forEach(function(msg, i) {
+                const chip = document.createElement('div');
+                chip.className = 'msg-chip';
+                const color = getKeyColor(msg.key || 'null', keyMap);
+                chip.style.background = color.bg;
+                chip.style.borderLeftColor = color.border;
+                chip.style.animationDelay = (i * 80) + 'ms';
+                chip.innerHTML =
+                    '<span class="chip-key" style="color:' + color.border + ';">' + (msg.key || 'null') + '</span>' +
+                    '<span class="chip-offset">offset: ' + msg.offset + '</span>';
+                body.appendChild(chip);
+            });
+
+            col.appendChild(body);
+            viz.appendChild(col);
+        }
+
+        // Лог
+        const logBody = document.getElementById('logBody');
+        logBody.innerHTML = '';
+        data.messages.forEach(function(msg, i) {
+            const color = getKeyColor(msg.key || 'null', keyMap);
+            const tr = document.createElement('tr');
+            tr.innerHTML =
+                '<td class="text-muted">' + (i + 1) + '</td>' +
+                '<td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:' + color.border + ';margin-right:6px;"></span><strong>' + (msg.key || '-') + '</strong></td>' +
+                '<td class="text-muted">' + msg.value + '</td>' +
+                '<td><span class="badge badge-topic">P' + msg.partition + '</span></td>' +
+                '<td>' + msg.offset + '</td>';
+            logBody.appendChild(tr);
+        });
+
+        // Scroll to results
+        document.getElementById('resultSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+</script>
+</body>
+</html>
