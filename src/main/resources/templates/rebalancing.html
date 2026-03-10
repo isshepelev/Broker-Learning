@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Broker Learning - Rebalancing')}"></head>
+<body>
+
+<nav th:replace="~{fragments/layout :: navbar}"></nav>
+
+<div class="container container-main">
+    <div class="page-header">
+        <h2>Consumer Group Rebalancing</h2>
+        <p>Когда consumer присоединяется к группе или покидает её, Kafka перераспределяет партиции
+            между оставшимися consumer'ами. Это называется <strong>rebalance</strong>.
+            Добавляйте и удаляйте consumer'ов и наблюдайте как партиции перетасовываются в реальном времени.</p>
+    </div>
+
+    <!-- Теория -->
+    <div class="row g-4 mb-4">
+        <div class="col-lg-4">
+            <div class="card h-100">
+                <div class="card-header" style="background:linear-gradient(135deg,#dbeafe,#fff);border-bottom:2px solid #93c5fd;">
+                    <h5 class="mb-0" style="font-size:.95rem;color:#1d4ed8;">Правила</h5>
+                </div>
+                <div class="card-body" style="font-size:.83rem;color:var(--c-text-secondary);">
+                    <ul style="padding-left:18px;margin:0;">
+                        <li>Каждая партиция назначается <strong>ровно одному</strong> consumer'у</li>
+                        <li>Один consumer может читать <strong>несколько</strong> партиций</li>
+                        <li>Если consumer'ов больше чем партиций — лишние простаивают</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card h-100">
+                <div class="card-header" style="background:linear-gradient(135deg,#fef3c7,#fff);border-bottom:2px solid #fcd34d;">
+                    <h5 class="mb-0" style="font-size:.95rem;color:#92400e;">Когда происходит</h5>
+                </div>
+                <div class="card-body" style="font-size:.83rem;color:var(--c-text-secondary);">
+                    <ul style="padding-left:18px;margin:0;">
+                        <li>Consumer <strong>присоединился</strong> к группе</li>
+                        <li>Consumer <strong>упал</strong> или покинул группу</li>
+                        <li>Добавлены новые <strong>партиции</strong> в топик</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card h-100">
+                <div class="card-header" style="background:linear-gradient(135deg,#fee2e2,#fff);border-bottom:2px solid #fca5a5;">
+                    <h5 class="mb-0" style="font-size:.95rem;color:#991b1b;">Цена rebalance</h5>
+                </div>
+                <div class="card-body" style="font-size:.83rem;color:var(--c-text-secondary);">
+                    <ul style="padding-left:18px;margin:0;">
+                        <li>Во время rebalance <strong>чтение останавливается</strong></li>
+                        <li>Все партиции сначала <strong>отбираются</strong>, потом перераспределяются</li>
+                        <li>Чем больше consumer'ов — тем дольше rebalance</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Управление -->
+    <div class="card mb-4">
+        <div class="card-body py-3">
+            <div class="d-flex align-items-center gap-3 flex-wrap">
+                <button class="btn btn-primary-custom" onclick="addConsumer()" id="btnAdd">+ Добавить Consumer</button>
+                <button class="btn btn-outline-danger" onclick="removeConsumer()" id="btnRemove">- Удалить Consumer</button>
+                <button class="btn btn-outline-secondary" onclick="resetAll()" id="btnReset">Сбросить всё</button>
+                <span class="ms-auto" style="font-size:.85rem;color:var(--c-text-muted);">
+                    Топик: <strong>rebalancing-topic</strong> · 6 партиций
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Визуализация -->
+    <div class="card mb-4">
+        <div class="card-header bg-white">
+            <h5 class="mb-0" style="font-size:1rem;">Распределение партиций</h5>
+        </div>
+        <div class="card-body">
+            <!-- Партиции -->
+            <div class="rb-partitions-label">Партиции топика:</div>
+            <div class="rb-partitions-row" id="partitionsRow"></div>
+
+            <!-- Стрелки анимации -->
+            <div class="rb-arrow-zone" id="arrowZone"></div>
+
+            <!-- Consumer'ы -->
+            <div class="rb-consumers-label" id="consumersLabel" style="display:none;">Consumer'ы в группе:</div>
+            <div class="rb-consumers-row" id="consumersRow"></div>
+
+            <!-- Пусто -->
+            <div id="emptyState" class="text-center py-4">
+                <p class="text-muted mb-0">Нажмите «+ Добавить Consumer» чтобы начать демо</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Лог событий -->
+    <div class="card">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0" style="font-size:1rem;">Лог событий rebalance</h5>
+            <span class="badge" style="background:#e5e7eb;color:#374151;" id="eventBadge">0</span>
+        </div>
+        <div class="card-body p-0">
+            <div id="eventEmpty" class="p-4 text-center">
+                <p class="text-muted mb-0">Пока нет событий</p>
+            </div>
+            <div id="eventWrap" style="max-height:400px;overflow-y:auto;display:none;padding:.75rem;">
+                <div id="eventLog"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div th:replace="~{fragments/layout :: scripts}"></div>
+
+<style>
+    .rb-partitions-label, .rb-consumers-label {
+        font-size:.8rem; font-weight:700; color:var(--c-text-muted);
+        margin-bottom:8px; text-transform:uppercase; letter-spacing:.5px;
+    }
+    .rb-partitions-row {
+        display:flex; gap:10px; flex-wrap:wrap; margin-bottom:20px;
+    }
+    .rb-partition {
+        width:80px; height:60px; border-radius:12px;
+        display:flex; flex-direction:column; align-items:center; justify-content:center;
+        font-weight:700; font-size:.85rem; border:2px solid;
+        transition: all .5s ease, transform .3s;
+    }
+    .rb-partition:hover { transform:scale(1.05); }
+    .rb-partition-num { font-size:.7rem; color:inherit; opacity:.7; }
+
+    .rb-arrow-zone {
+        height:40px; position:relative; margin-bottom:16px;
+    }
+
+    .rb-consumers-row {
+        display:flex; gap:14px; flex-wrap:wrap;
+    }
+    .rb-consumer-card {
+        border:2px solid; border-radius:14px; padding:14px;
+        min-width:160px; transition:all .5s ease;
+        animation:rb-fadeIn .5s ease;
+    }
+    @keyframes rb-fadeIn {
+        from { opacity:0; transform:translateY(20px); }
+        to { opacity:1; transform:translateY(0); }
+    }
+    .rb-consumer-name {
+        font-weight:800; font-size:.9rem; margin-bottom:8px;
+        display:flex; align-items:center; gap:6px;
+    }
+    .rb-consumer-dot {
+        width:8px; height:8px; border-radius:50%; display:inline-block;
+    }
+    .rb-consumer-partitions {
+        display:flex; gap:5px; flex-wrap:wrap;
+    }
+    .rb-consumer-p {
+        width:38px; height:32px; border-radius:8px;
+        display:inline-flex; align-items:center; justify-content:center;
+        font-size:.78rem; font-weight:700;
+        animation:rb-partPop .4s ease;
+    }
+    @keyframes rb-partPop {
+        0% { transform:scale(0); opacity:0; }
+        60% { transform:scale(1.2); }
+        100% { transform:scale(1); opacity:1; }
+    }
+    .rb-consumer-idle {
+        font-size:.75rem; color:var(--c-text-muted); font-style:italic;
+    }
+
+    .rb-unassigned-label {
+        font-size:.72rem; color:#991b1b; font-weight:600; margin-top:4px;
+    }
+
+    /* Цвета consumer'ов */
+    .rb-c0 { --rb-color:#3b82f6; --rb-bg:#dbeafe; --rb-text:#1e40af; }
+    .rb-c1 { --rb-color:#f59e0b; --rb-bg:#fef3c7; --rb-text:#92400e; }
+    .rb-c2 { --rb-color:#10b981; --rb-bg:#d1fae5; --rb-text:#065f46; }
+    .rb-c3 { --rb-color:#8b5cf6; --rb-bg:#ede9fe; --rb-text:#5b21b6; }
+    .rb-c4 { --rb-color:#ec4899; --rb-bg:#fce7f3; --rb-text:#9d174d; }
+    .rb-c5 { --rb-color:#f97316; --rb-bg:#ffedd5; --rb-text:#9a3412; }
+
+    /* Event log */
+    .rb-event {
+        padding:8px 12px; margin-bottom:6px; border-radius:8px;
+        font-size:.8rem; border-left:3px solid;
+        display:flex; gap:10px; align-items:flex-start;
+        animation:rb-fadeIn .3s ease;
+    }
+    .rb-event-time {
+        font-family:'SF Mono',Consolas,monospace; font-size:.72rem;
+        color:var(--c-text-muted); white-space:nowrap; min-width:60px;
+    }
+    .rb-event-badge {
+        padding:1px 8px; border-radius:4px; font-size:.68rem;
+        font-weight:700; letter-spacing:.3px; white-space:nowrap;
+    }
+    .rb-ev-add { background:rgba(59,130,246,.05); border-left-color:#3b82f6; }
+    .rb-ev-remove { background:rgba(239,68,68,.05); border-left-color:#ef4444; }
+    .rb-ev-assign { background:rgba(16,185,129,.05); border-left-color:#10b981; }
+    .rb-ev-revoke { background:rgba(245,158,11,.05); border-left-color:#f59e0b; }
+    .rb-ev-reset { background:rgba(107,114,128,.05); border-left-color:#6b7280; }
+
+    .rb-badge-add { background:#dbeafe; color:#1d4ed8; }
+    .rb-badge-remove { background:#fee2e2; color:#991b1b; }
+    .rb-badge-assign { background:#d1fae5; color:#065f46; }
+    .rb-badge-revoke { background:#fef3c7; color:#92400e; }
+    .rb-badge-reset { background:#f3f4f6; color:#374151; }
+
+    .rb-spinner {
+        display:inline-block; width:14px; height:14px;
+        border:2px solid #e5e7eb; border-top:2px solid var(--c-primary);
+        border-radius:50%; animation:rb-spin .7s linear infinite; margin-right:4px;
+    }
+    @keyframes rb-spin { to { transform:rotate(360deg); } }
+</style>
+
+<script>
+    const CONSUMER_CLASSES = ['rb-c0','rb-c1','rb-c2','rb-c3','rb-c4','rb-c5'];
+    let consumerColorMap = {};
+    let colorIdx = 0;
+    let isLoading = false;
+    let lastJson = '';
+
+    function getConsumerColor(id) {
+        if (!consumerColorMap[id]) {
+            consumerColorMap[id] = CONSUMER_CLASSES[colorIdx % CONSUMER_CLASSES.length];
+            colorIdx++;
+        }
+        return consumerColorMap[id];
+    }
+
+    function setLoading(btnId, loading, text) {
+        const btn = document.getElementById(btnId);
+        if (loading) {
+            btn.disabled = true;
+            btn.innerHTML = '<span class="rb-spinner"></span>' + (text || 'Ожидание...');
+            isLoading = true;
+        } else {
+            btn.disabled = false;
+            btn.textContent = btn.dataset.label || text;
+            isLoading = false;
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('btnAdd').dataset.label = '+ Добавить Consumer';
+        document.getElementById('btnRemove').dataset.label = '- Удалить Consumer';
+        document.getElementById('btnReset').dataset.label = 'Сбросить всё';
+        refresh();
+        setInterval(refresh, 3000);
+    });
+
+    async function addConsumer() {
+        setLoading('btnAdd', true, 'Rebalance...');
+        try {
+            const resp = await fetch('/rebalancing/add', {method:'POST'});
+            const data = await resp.json();
+            lastJson = '';
+            render(data);
+        } catch(e) { console.error(e); }
+        finally { setLoading('btnAdd', false, '+ Добавить Consumer'); }
+    }
+
+    async function removeConsumer() {
+        setLoading('btnRemove', true, 'Rebalance...');
+        try {
+            const resp = await fetch('/rebalancing/remove', {method:'POST'});
+            const data = await resp.json();
+            lastJson = '';
+            render(data);
+        } catch(e) { console.error(e); }
+        finally { setLoading('btnRemove', false, '- Удалить Consumer'); }
+    }
+
+    async function resetAll() {
+        consumerColorMap = {};
+        colorIdx = 0;
+        lastJson = '';
+        try {
+            const resp = await fetch('/rebalancing/reset', {method:'POST'});
+            const data = await resp.json();
+            render(data);
+        } catch(e) { console.error(e); }
+    }
+
+    async function refresh() {
+        if (isLoading) return;
+        try {
+            const resp = await fetch('/rebalancing/status');
+            const data = await resp.json();
+            const json = JSON.stringify(data);
+            if (json === lastJson) return;
+            lastJson = json;
+            render(data);
+        } catch(e) { console.error(e); }
+    }
+
+    function render(data) {
+        const assignments = data.assignments || {};
+        const allConsumers = data.allConsumers || [];
+        const events = data.events || [];
+        const totalP = data.totalPartitions || 6;
+
+        // Partition → consumer mapping
+        const partMap = {};
+        for (const [cId, parts] of Object.entries(assignments)) {
+            for (const p of parts) partMap[p] = cId;
+        }
+
+        // === Партиции ===
+        const pRow = document.getElementById('partitionsRow');
+        pRow.innerHTML = '';
+        for (let i = 0; i < totalP; i++) {
+            const owner = partMap[i];
+            const cls = owner ? getConsumerColor(owner) : '';
+            const div = document.createElement('div');
+            div.className = 'rb-partition ' + cls;
+            if (owner) {
+                div.style.borderColor = 'var(--rb-color)';
+                div.style.background = 'var(--rb-bg)';
+                div.style.color = 'var(--rb-text)';
+            } else {
+                div.style.borderColor = '#d1d5db';
+                div.style.background = '#f9fafb';
+                div.style.color = '#9ca3af';
+            }
+            div.innerHTML = '<span>P' + i + '</span>' +
+                '<span class="rb-partition-num">' + (owner || 'свободна') + '</span>';
+            pRow.appendChild(div);
+        }
+
+        // === Consumer'ы (все, включая idle) ===
+        const cRow = document.getElementById('consumersRow');
+        const cLabel = document.getElementById('consumersLabel');
+        const empty = document.getElementById('emptyState');
+
+        if (allConsumers.length > 0) {
+            cLabel.style.display = '';
+            empty.style.display = 'none';
+            cRow.innerHTML = '';
+
+            const sorted = [...allConsumers].sort((a,b) => {
+                const na = parseInt(a.split('-')[1]) || 0;
+                const nb = parseInt(b.split('-')[1]) || 0;
+                return na - nb;
+            });
+
+            for (const cId of sorted) {
+                const cls = getConsumerColor(cId);
+                const parts = assignments[cId] || [];
+                const div = document.createElement('div');
+                div.className = 'rb-consumer-card ' + cls;
+                div.style.borderColor = 'var(--rb-color)';
+                div.style.background = 'var(--rb-bg)';
+
+                let inner = '<div class="rb-consumer-name" style="color:var(--rb-text);">';
+                inner += '<span class="rb-consumer-dot" style="background:var(--rb-color);"></span>';
+                inner += cId + '</div>';
+
+                if (parts.length > 0) {
+                    inner += '<div class="rb-consumer-partitions">';
+                    [...parts].sort((a,b) => a-b).forEach(p => {
+                        inner += '<span class="rb-consumer-p" style="background:var(--rb-color);color:#fff;">P' + p + '</span>';
+                    });
+                    inner += '</div>';
+                } else {
+                    inner += '<div class="rb-consumer-idle">Нет партиций (idle)</div>';
+                }
+
+                div.innerHTML = inner;
+                cRow.appendChild(div);
+            }
+        } else {
+            cLabel.style.display = 'none';
+            cRow.innerHTML = '';
+            empty.style.display = '';
+        }
+
+        // === Лог событий ===
+        document.getElementById('eventBadge').textContent = events.length;
+        if (events.length > 0) {
+            document.getElementById('eventEmpty').style.display = 'none';
+            document.getElementById('eventWrap').style.display = '';
+            const logDiv = document.getElementById('eventLog');
+            logDiv.innerHTML = '';
+            events.forEach(ev => {
+                const typeLower = ev.type.toLowerCase();
+                const div = document.createElement('div');
+                div.className = 'rb-event rb-ev-' + typeLower;
+                div.innerHTML =
+                    '<span class="rb-event-time">' + ev.time + '</span>' +
+                    '<span class="rb-event-badge rb-badge-' + typeLower + '">' + ev.type + '</span>' +
+                    '<span><strong>' + ev.consumer + '</strong> — ' + ev.message + '</span>';
+                logDiv.appendChild(div);
+            });
+        } else {
+            document.getElementById('eventEmpty').style.display = '';
+            document.getElementById('eventWrap').style.display = 'none';
+        }
+    }
+</script>
+</body>
+</html>

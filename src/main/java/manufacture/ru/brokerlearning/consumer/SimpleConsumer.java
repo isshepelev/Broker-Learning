@@ -27,7 +27,8 @@ public class SimpleConsumer {
             "dlq-compare-topic", "dlq-compare-topic.DLT",
             "ordering-1p-topic", "ordering-5p-topic",
             "compression-none", "compression-gzip", "compression-snappy",
-            "compression-lz4", "compression-zstd"
+            "compression-lz4", "compression-zstd",
+            "rebalancing-topic"
     );
 
     private final MessageHistoryService messageHistoryService;
