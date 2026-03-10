@@ -20,6 +20,7 @@ spring:
       enable-auto-commit: false
       properties:
         isolation.level: read_committed
+        metadata.max.age.ms: 10000
     listener:
       ack-mode: manual
 

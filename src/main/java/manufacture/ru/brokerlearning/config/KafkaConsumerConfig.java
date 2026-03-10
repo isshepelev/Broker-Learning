@@ -37,6 +37,7 @@ public class KafkaConsumerConfig {
         configProps.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
         configProps.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
         configProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        configProps.put(ConsumerConfig.METADATA_MAX_AGE_CONFIG, 10000);
         return new DefaultKafkaConsumerFactory<>(configProps);
     }
 
