@@ -228,13 +228,15 @@ public class RebalancingService {
     }
 
     private void addEvent(String type, String consumer, String message) {
-        eventLog.add(0, Map.of(
-                "time", LocalTime.now().format(FMT),
-                "type", type,
-                "consumer", consumer,
-                "message", message
-        ));
-        while (eventLog.size() > 50) eventLog.remove(eventLog.size() - 1);
+        synchronized (eventLog) {
+            eventLog.add(0, Map.of(
+                    "time", LocalTime.now().format(FMT),
+                    "type", type,
+                    "consumer", consumer,
+                    "message", message
+            ));
+            while (eventLog.size() > 50) eventLog.remove(eventLog.size() - 1);
+        }
     }
 
     private void ensureTopic() {
