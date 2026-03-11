@@ -8,94 +8,333 @@
 <div class="container container-main">
     <div class="page-header">
         <h2>Consumer Groups</h2>
-        <p>Узнайте, как Kafka организует consumer-ов в группы для параллельной обработки и отказоустойчивости.</p>
+        <p>Kafka организует consumer-ов в группы для параллельной обработки и отказоустойчивости.
+            Здесь вы видите реальные группы вашего кластера, их участников, назначенные партиции, offset-ы и lag.</p>
     </div>
 
-    <div class="theory-section">
-        <h5>Что такое Consumer Group?</h5>
-        <p><strong>Consumer group</strong> -- набор consumer-ов, совместно обрабатывающих данные из topic-ов. Каждый partition назначается ровно одному consumer-у в группе. При сбое Kafka <strong>перебалансирует</strong> partition-ы между оставшимися участниками.</p>
-    </div>
-
+    <!-- Теория -->
     <div class="row g-4 mb-4">
-        <div class="col-md-6">
+        <div class="col-lg-4">
             <div class="card h-100">
-                <div class="card-header bg-white">
-                    <h5 class="mb-0" style="font-size: 1rem;">Назначение Partition-ов</h5>
+                <div class="card-header" style="background:linear-gradient(135deg,#dbeafe,#fff);border-bottom:2px solid #93c5fd;">
+                    <h5 class="mb-0" style="font-size:.95rem;color:#1d4ed8;">Назначение партиций</h5>
                 </div>
-                <div class="card-body">
-                    <ul style="color: var(--c-text-secondary); font-size: .88rem;">
-                        <li>Каждый partition обрабатывается ровно <strong>одним</strong> consumer-ом в группе</li>
-                        <li>Один consumer может обрабатывать несколько partition-ов</li>
-                        <li>Если consumer-ов больше чем partition-ов, часть будет простаивать</li>
-                        <li>Для максимального параллелизма: число consumer-ов = число partition-ов</li>
+                <div class="card-body" style="font-size:.83rem;color:var(--c-text-secondary);">
+                    <ul style="padding-left:18px;margin:0;">
+                        <li>Каждый partition — ровно <strong>одному</strong> consumer-у</li>
+                        <li>Один consumer может читать <strong>несколько</strong> partition-ов</li>
+                        <li>Несколько групп <strong>независимо</strong> читают один topic</li>
                     </ul>
-                    <p style="color: var(--c-text-secondary); font-size: .86rem;" class="mb-0"><strong>Совет:</strong> несколько consumer group-ов могут независимо читать из одного topic-а.</p>
                 </div>
             </div>
         </div>
-        <div class="col-md-6">
+        <div class="col-lg-4">
             <div class="card h-100">
-                <div class="card-header bg-white">
-                    <h5 class="mb-0" style="font-size: 1rem;">Rebalancing</h5>
+                <div class="card-header" style="background:linear-gradient(135deg,#d1fae5,#fff);border-bottom:2px solid #6ee7b7;">
+                    <h5 class="mb-0" style="font-size:.95rem;color:#065f46;">Offset и Lag</h5>
                 </div>
-                <div class="card-body">
-                    <p style="color: var(--c-text-secondary); font-size: .88rem;">Rebalancing происходит при изменении состава группы:</p>
-                    <ul style="color: var(--c-text-secondary); font-size: .88rem;">
-                        <li><strong>Новый consumer:</strong> partition-ы перераспределяются</li>
-                        <li><strong>Consumer выходит:</strong> его partition-ы переназначаются</li>
-                        <li><strong>Добавлены partition-ы:</strong> запускается rebalancing</li>
+                <div class="card-body" style="font-size:.83rem;color:var(--c-text-secondary);">
+                    <ul style="padding-left:18px;margin:0;">
+                        <li><strong>Current offset</strong> — до куда consumer прочитал</li>
+                        <li><strong>End offset</strong> — последнее сообщение в партиции</li>
+                        <li><strong>Lag</strong> = end − current (сколько не обработано)</li>
                     </ul>
-                    <h6 class="fw-semibold" style="font-size: .85rem;">Стратегии:</h6>
-                    <ul style="color: var(--c-text-secondary); font-size: .86rem;" class="mb-0">
-                        <li><strong>Eager:</strong> все отдают partition-ы и заново присоединяются</li>
-                        <li><strong>Cooperative:</strong> только затронутые partition-ы перераспределяются</li>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card h-100">
+                <div class="card-header" style="background:linear-gradient(135deg,#fef3c7,#fff);border-bottom:2px solid #fcd34d;">
+                    <h5 class="mb-0" style="font-size:.95rem;color:#92400e;">Состояния группы</h5>
+                </div>
+                <div class="card-body" style="font-size:.83rem;color:var(--c-text-secondary);">
+                    <ul style="padding-left:18px;margin:0;">
+                        <li><strong>Stable</strong> — все партиции распределены</li>
+                        <li><strong>PreparingRebalance</strong> — идёт перебалансировка</li>
+                        <li><strong>Empty</strong> — нет активных consumer-ов</li>
+                        <li><strong>Dead</strong> — группа удалена</li>
                     </ul>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Список -->
+    <!-- Список групп -->
     <div class="card mb-4">
         <div class="card-header bg-white d-flex justify-content-between align-items-center">
-            <h5 class="mb-0" style="font-size: 1rem;">Consumer Groups в кластере</h5>
-            <button class="btn btn-sm btn-outline-custom" onclick="location.reload()">Обновить</button>
+            <h5 class="mb-0" style="font-size:1rem;">Consumer Groups в кластере</h5>
+            <button class="btn btn-sm btn-outline-custom" onclick="loadGroups()">Обновить</button>
         </div>
         <div class="card-body p-0">
-            <div th:if="${consumerGroups == null or consumerGroups.isEmpty()}" class="p-4 text-center">
-                <p class="text-muted mb-0">Consumer group-ов не найдено. Они создаются автоматически при подписке на topic-и.</p>
+            <div id="groupsLoading" class="p-4 text-center">
+                <span class="cg-spinner"></span> Загрузка...
             </div>
-            <div th:unless="${consumerGroups == null or consumerGroups.isEmpty()}">
-                <ul class="list-group list-group-flush">
-                    <li th:each="group : ${consumerGroups}" class="list-group-item d-flex justify-content-between align-items-center">
-                        <strong th:text="${group}">group-id</strong>
-                        <span class="badge badge-topic">Consumer Group</span>
-                    </li>
-                </ul>
+            <div id="groupsEmpty" class="p-4 text-center" style="display:none;">
+                <p class="text-muted mb-0">Consumer group-ов не найдено. Отправьте сообщение или запустите джобу — группы создадутся автоматически.</p>
             </div>
+            <div id="groupsList" style="display:none;"></div>
         </div>
     </div>
 
-    <!-- Offset-ы -->
-    <div class="card">
-        <div class="card-header bg-white">
-            <h5 class="mb-0" style="font-size: 1rem;">Управление Offset-ами</h5>
-        </div>
-        <div class="card-body">
-            <div class="row g-4">
-                <div class="col-md-6">
-                    <h6 class="fw-semibold" style="font-size: .9rem;">Автоматический коммит</h6>
-                    <p style="color: var(--c-text-secondary); font-size: .88rem;">С <code>enable.auto.commit=true</code> offset-ы коммитятся автоматически через интервал <code>auto.commit.interval.ms</code>. Просто, но может привести к потерям (at-most-once).</p>
+    <!-- Детали выбранной группы -->
+    <div id="detailSection" style="display:none;">
+        <div class="card mb-4">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0" style="font-size:1rem;">
+                    <span id="detailGroupId"></span>
+                    <span id="detailState" class="cg-state-badge ms-2"></span>
+                </h5>
+                <div>
+                    <span id="detailAssignor" style="font-size:.78rem;color:var(--c-text-muted);margin-right:12px;"></span>
+                    <span id="detailCoordinator" style="font-size:.78rem;color:var(--c-text-muted);"></span>
                 </div>
-                <div class="col-md-6">
-                    <h6 class="fw-semibold" style="font-size: .9rem;">Ручной коммит</h6>
-                    <p style="color: var(--c-text-secondary); font-size: .88rem;">С <code>enable.auto.commit=false</code> приложение явно коммитит offset-ы. Обеспечивает at-least-once. Используйте <code>commitSync()</code> или <code>commitAsync()</code>.</p>
-                </div>
+            </div>
+            <div class="card-body" id="detailBody">
+                <div class="cg-spinner-center"><span class="cg-spinner"></span></div>
             </div>
         </div>
     </div>
 </div>
 
 <div th:replace="~{fragments/layout :: scripts}"></div>
+
+<style>
+    .cg-group-item {
+        display:flex; justify-content:space-between; align-items:center;
+        padding:12px 16px; border-bottom:1px solid #f3f4f6;
+        cursor:pointer; transition:background .15s;
+    }
+    .cg-group-item:hover { background:#f8fafc; }
+    .cg-group-item.active { background:#eff6ff; border-left:3px solid #3b82f6; }
+    .cg-group-item:last-child { border-bottom:none; }
+
+    .cg-group-name { font-weight:700; font-size:.9rem; }
+    .cg-group-meta { font-size:.78rem; color:var(--c-text-muted); display:flex; gap:12px; align-items:center; }
+
+    .cg-state-badge {
+        display:inline-block; padding:2px 10px; border-radius:4px;
+        font-size:.72rem; font-weight:700; letter-spacing:.3px;
+    }
+    .cg-state-stable { background:#d1fae5; color:#065f46; }
+    .cg-state-empty { background:#f3f4f6; color:#6b7280; }
+    .cg-state-rebalancing, .cg-state-preparingrebalance, .cg-state-completingrebalance {
+        background:#fef3c7; color:#92400e;
+    }
+    .cg-state-dead { background:#fee2e2; color:#991b1b; }
+
+    .cg-members-title {
+        font-size:.85rem; font-weight:700; color:var(--c-text-secondary);
+        margin-bottom:10px; text-transform:uppercase; letter-spacing:.5px;
+    }
+    .cg-member-card {
+        border:1px solid #e5e7eb; border-radius:10px; padding:12px 14px; margin-bottom:10px;
+    }
+    .cg-member-header {
+        display:flex; justify-content:space-between; align-items:center;
+        margin-bottom:6px;
+    }
+    .cg-member-name { font-weight:700; font-size:.85rem; color:#1d4ed8; }
+    .cg-member-host { font-size:.75rem; color:var(--c-text-muted); }
+    .cg-member-partitions { display:flex; gap:5px; flex-wrap:wrap; }
+    .cg-member-p {
+        padding:3px 10px; border-radius:6px; font-size:.75rem; font-weight:600;
+        background:#dbeafe; color:#1e40af;
+    }
+
+    .cg-offset-table {
+        width:100%; border-collapse:collapse; font-size:.82rem;
+    }
+    .cg-offset-table th {
+        text-align:left; padding:8px 10px; font-weight:700; color:var(--c-text-muted);
+        font-size:.75rem; text-transform:uppercase; letter-spacing:.3px;
+        border-bottom:2px solid #e5e7eb; background:#f9fafb;
+    }
+    .cg-offset-table td {
+        padding:7px 10px; border-bottom:1px solid #f3f4f6;
+    }
+    .cg-lag-zero { color:#10b981; font-weight:600; }
+    .cg-lag-low { color:#f59e0b; font-weight:600; }
+    .cg-lag-high { color:#ef4444; font-weight:700; }
+
+    .cg-total-lag {
+        display:inline-block; padding:6px 16px; border-radius:8px;
+        font-size:.85rem; font-weight:700; margin-top:12px;
+    }
+    .cg-total-lag-ok { background:#d1fae5; color:#065f46; }
+    .cg-total-lag-warn { background:#fef3c7; color:#92400e; }
+    .cg-total-lag-bad { background:#fee2e2; color:#991b1b; }
+
+    .cg-spinner {
+        display:inline-block; width:16px; height:16px;
+        border:2px solid #e5e7eb; border-top:2px solid var(--c-primary);
+        border-radius:50%; animation:cg-spin .7s linear infinite;
+    }
+    @keyframes cg-spin { to { transform:rotate(360deg); } }
+    .cg-spinner-center { text-align:center; padding:20px; }
+
+    .cg-no-members {
+        text-align:center; color:var(--c-text-muted); padding:20px;
+        font-size:.85rem; font-style:italic;
+    }
+</style>
+
+<script>
+    let selectedGroup = null;
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadGroups();
+    });
+
+    async function loadGroups() {
+        document.getElementById('groupsLoading').style.display = '';
+        document.getElementById('groupsList').style.display = 'none';
+        document.getElementById('groupsEmpty').style.display = 'none';
+
+        try {
+            const resp = await fetch('/consumer-groups/list');
+            const groups = await resp.json();
+
+            document.getElementById('groupsLoading').style.display = 'none';
+
+            if (groups.length === 0) {
+                document.getElementById('groupsEmpty').style.display = '';
+                return;
+            }
+
+            const list = document.getElementById('groupsList');
+            list.style.display = '';
+            list.innerHTML = '';
+
+            groups.forEach(g => {
+                const div = document.createElement('div');
+                div.className = 'cg-group-item' + (selectedGroup === g.groupId ? ' active' : '');
+                div.onclick = () => selectGroup(g.groupId, div);
+
+                const stateClass = getStateClass(g.state);
+                div.innerHTML =
+                    '<div>' +
+                    '  <span class="cg-group-name">' + g.groupId + '</span>' +
+                    '</div>' +
+                    '<div class="cg-group-meta">' +
+                    '  <span>' + g.members + ' участник' + plural(g.members) + '</span>' +
+                    '  <span class="cg-state-badge ' + stateClass + '">' + g.state + '</span>' +
+                    '</div>';
+                list.appendChild(div);
+            });
+
+            // Автоматически загрузить детали если группа выбрана
+            if (selectedGroup) loadDetail(selectedGroup);
+        } catch (e) {
+            console.error(e);
+            document.getElementById('groupsLoading').style.display = 'none';
+        }
+    }
+
+    function selectGroup(groupId, el) {
+        selectedGroup = groupId;
+        document.querySelectorAll('.cg-group-item').forEach(e => e.classList.remove('active'));
+        el.classList.add('active');
+        loadDetail(groupId);
+    }
+
+    async function loadDetail(groupId) {
+        const section = document.getElementById('detailSection');
+        section.style.display = '';
+        document.getElementById('detailGroupId').textContent = groupId;
+        document.getElementById('detailState').textContent = '';
+        document.getElementById('detailBody').innerHTML = '<div class="cg-spinner-center"><span class="cg-spinner"></span></div>';
+
+        try {
+            const resp = await fetch('/consumer-groups/detail/' + encodeURIComponent(groupId));
+            const data = await resp.json();
+
+            // Header
+            const stateClass = getStateClass(data.state);
+            document.getElementById('detailState').className = 'cg-state-badge ms-2 ' + stateClass;
+            document.getElementById('detailState').textContent = data.state;
+            document.getElementById('detailAssignor').textContent = 'Assignor: ' + (data.partitionAssignor || '—');
+            document.getElementById('detailCoordinator').textContent = 'Coordinator: ' + (data.coordinator || '—');
+
+            let html = '';
+
+            // Участники
+            const members = data.members || [];
+            html += '<div class="cg-members-title">Участники (' + members.length + ')</div>';
+
+            if (members.length === 0) {
+                html += '<div class="cg-no-members">Нет активных consumer-ов. Группа пустая — offset-ы сохраняются до истечения offsets.retention.minutes.</div>';
+            } else {
+                members.forEach(m => {
+                    html += '<div class="cg-member-card">';
+                    html += '<div class="cg-member-header">';
+                    html += '  <span class="cg-member-name">' + m.clientId + '</span>';
+                    html += '  <span class="cg-member-host">' + m.host + ' · ' + m.partitionCount + ' партиций</span>';
+                    html += '</div>';
+                    html += '<div class="cg-member-partitions">';
+                    if (m.partitions.length > 0) {
+                        m.partitions.forEach(p => {
+                            html += '<span class="cg-member-p">' + p + '</span>';
+                        });
+                    } else {
+                        html += '<span style="font-size:.78rem;color:var(--c-text-muted);font-style:italic;">Нет назначенных партиций (idle)</span>';
+                    }
+                    html += '</div></div>';
+                });
+            }
+
+            // Offset-ы
+            const offsets = data.offsets || [];
+            if (offsets.length > 0) {
+                html += '<div class="cg-members-title" style="margin-top:20px;">Offset-ы и Lag по партициям</div>';
+                html += '<div style="overflow-x:auto;">';
+                html += '<table class="cg-offset-table">';
+                html += '<thead><tr><th>Topic</th><th>Partition</th><th>Current Offset</th><th>End Offset</th><th>Lag</th></tr></thead>';
+                html += '<tbody>';
+
+                // Группируем по topic
+                let currentTopic = '';
+                offsets.forEach(o => {
+                    const lagClass = o.lag === 0 ? 'cg-lag-zero' : (o.lag < 100 ? 'cg-lag-low' : 'cg-lag-high');
+                    const topicCell = o.topic !== currentTopic ? o.topic : '';
+                    currentTopic = o.topic;
+                    html += '<tr>';
+                    html += '<td style="font-weight:' + (topicCell ? '600' : '400') + ';">' + topicCell + '</td>';
+                    html += '<td>' + o.partition + '</td>';
+                    html += '<td style="font-family:monospace;">' + o.currentOffset + '</td>';
+                    html += '<td style="font-family:monospace;">' + o.endOffset + '</td>';
+                    html += '<td class="' + lagClass + '">' + o.lag + '</td>';
+                    html += '</tr>';
+                });
+
+                html += '</tbody></table></div>';
+
+                // Total lag
+                const totalLag = data.totalLag || 0;
+                const lagBadge = totalLag === 0 ? 'cg-total-lag-ok' : (totalLag < 100 ? 'cg-total-lag-warn' : 'cg-total-lag-bad');
+                html += '<div class="cg-total-lag ' + lagBadge + '">Total lag: ' + totalLag + '</div>';
+            }
+
+            document.getElementById('detailBody').innerHTML = html;
+        } catch (e) {
+            console.error(e);
+            document.getElementById('detailBody').innerHTML = '<p class="text-danger">Ошибка загрузки деталей</p>';
+        }
+    }
+
+    function getStateClass(state) {
+        if (!state) return 'cg-state-empty';
+        const s = state.toLowerCase();
+        if (s === 'stable') return 'cg-state-stable';
+        if (s === 'empty') return 'cg-state-empty';
+        if (s === 'dead') return 'cg-state-dead';
+        return 'cg-state-rebalancing';
+    }
+
+    function plural(n) {
+        if (n === 1) return '';
+        if (n >= 2 && n <= 4) return 'а';
+        return 'ов';
+    }
+</script>
 </body>
 </html>
