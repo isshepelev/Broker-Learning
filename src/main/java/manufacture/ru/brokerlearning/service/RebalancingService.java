@@ -2,6 +2,9 @@ package manufacture.ru.brokerlearning.service;
 
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.NewPartitions;
+import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.WakeupException;
@@ -24,12 +27,16 @@ public class RebalancingService {
 
     private static final String TOPIC = "rebalancing-topic";
     private static final String GROUP_ID = "rebalancing-demo-group";
-    private static final int PARTITIONS = 6;
+    private static final int INITIAL_PARTITIONS = 6;
+    private static final int MAX_PARTITIONS = 12;
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("HH:mm:ss");
 
     private final String bootstrapServers;
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private final AtomicInteger counter = new AtomicInteger(0);
+
+    // Текущее количество партиций (может увеличиваться)
+    private volatile int currentPartitions = INITIAL_PARTITIONS;
 
     // Consumer state
     private final Map<String, ConsumerHandle> handles = new ConcurrentHashMap<>();
@@ -81,12 +88,10 @@ public class RebalancingService {
 
         ConsumerHandle handle = handles.remove(lastId);
 
-        // Помечаем что consumer должен остановиться и wakeup
         handle.running = false;
         if (handle.consumer != null) {
             handle.consumer.wakeup();
         }
-        // Ждём завершения потока
         if (handle.future != null) {
             try { handle.future.get(10, TimeUnit.SECONDS); } catch (Exception ignored) {}
         }
@@ -95,7 +100,33 @@ public class RebalancingService {
         addEvent("REMOVE", lastId, "Удалён из группы, запущен rebalance...");
         log.info("Rebalancing: removed {}", lastId);
 
-        // Ждём rebalance у оставшихся
+        if (!handles.isEmpty()) {
+            waitForStableAssignments();
+        }
+
+        return getStatus();
+    }
+
+    public synchronized Map<String, Object> addPartition() {
+        if (currentPartitions >= MAX_PARTITIONS) {
+            addEvent("PARTITION", "—", "Достигнут лимит: " + MAX_PARTITIONS + " партиций");
+            return getStatus();
+        }
+
+        int newCount = currentPartitions + 1;
+
+        try (AdminClient admin = AdminClient.create(adminProps())) {
+            admin.createPartitions(Map.of(TOPIC, NewPartitions.increaseTo(newCount))).all().get();
+            currentPartitions = newCount;
+            addEvent("PARTITION", "—", "Добавлена партиция P" + (newCount - 1) + " (всего: " + newCount + ")");
+            log.info("Rebalancing: increased partitions to {}", newCount);
+        } catch (Exception e) {
+            log.error("Failed to add partition: {}", e.getMessage());
+            addEvent("PARTITION", "—", "Ошибка добавления партиции: " + e.getMessage());
+            return getStatus();
+        }
+
+        // Ждём rebalance если есть consumer'ы
         if (!handles.isEmpty()) {
             waitForStableAssignments();
         }
@@ -104,7 +135,7 @@ public class RebalancingService {
     }
 
     public synchronized Map<String, Object> reset() {
-        // Останавливаем всех через wakeup
+        // Останавливаем всех consumer'ов
         for (var handle : handles.values()) {
             handle.running = false;
             if (handle.consumer != null) handle.consumer.wakeup();
@@ -119,13 +150,18 @@ public class RebalancingService {
         eventLog.clear();
         counter.set(0);
 
-        addEvent("RESET", "—", "Все consumer'ы остановлены");
+        // Пересоздаём топик с начальным количеством партиций
+        resetTopic();
+        currentPartitions = INITIAL_PARTITIONS;
+
+        addEvent("RESET", "—", "Все consumer'ы остановлены, партиции сброшены до " + INITIAL_PARTITIONS);
         return getStatus();
     }
 
     public Map<String, Object> getStatus() {
         Map<String, Object> status = new LinkedHashMap<>();
-        status.put("totalPartitions", PARTITIONS);
+        status.put("totalPartitions", currentPartitions);
+        status.put("maxPartitions", MAX_PARTITIONS);
         status.put("consumerCount", handles.size());
         status.put("assignments", new LinkedHashMap<>(assignments));
         status.put("events", new ArrayList<>(eventLog));
@@ -134,7 +170,7 @@ public class RebalancingService {
         Set<Integer> allAssigned = new HashSet<>();
         assignments.values().forEach(allAssigned::addAll);
         Set<Integer> unassigned = new LinkedHashSet<>();
-        for (int i = 0; i < PARTITIONS; i++) {
+        for (int i = 0; i < currentPartitions; i++) {
             if (!allAssigned.contains(i)) unassigned.add(i);
         }
         status.put("unassigned", unassigned);
@@ -142,10 +178,6 @@ public class RebalancingService {
         return status;
     }
 
-    /**
-     * Ждём пока все 6 партиций будут назначены consumer'ам (без дубликатов).
-     * Polling вместо CountDownLatch — надёжнее при каскадных rebalance.
-     */
     private void waitForStableAssignments() {
         long deadline = System.currentTimeMillis() + 15_000;
         try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
@@ -168,7 +200,7 @@ public class RebalancingService {
                 allPartitions.addAll(parts);
             }
         }
-        return allPartitions.size() == PARTITIONS;
+        return allPartitions.size() == currentPartitions;
     }
 
     private void runConsumer(String consumerId, ConsumerHandle handle) {
@@ -181,6 +213,8 @@ public class RebalancingService {
         props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "true");
         props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, "10000");
         props.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, "2000");
+        // Быстрое обнаружение новых партиций (по умолчанию 5 минут)
+        props.put(ConsumerConfig.METADATA_MAX_AGE_CONFIG, "60000");
 
         try (KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props)) {
             handle.consumer = consumer;
@@ -188,7 +222,6 @@ public class RebalancingService {
             consumer.subscribe(List.of(TOPIC), new ConsumerRebalanceListener() {
                 @Override
                 public void onPartitionsRevoked(Collection<TopicPartition> partitions) {
-                    // Очищаем старые назначения чтобы не было стейлых данных
                     assignments.remove(consumerId);
                     if (!partitions.isEmpty()) {
                         Set<Integer> revoked = new LinkedHashSet<>();
@@ -211,7 +244,6 @@ public class RebalancingService {
                 }
             });
 
-            // Poll loop — выход когда running = false
             while (handle.running) {
                 try {
                     consumer.poll(Duration.ofMillis(1000));
@@ -239,18 +271,42 @@ public class RebalancingService {
         }
     }
 
-    private void ensureTopic() {
+    private Properties adminProps() {
         Properties props = new Properties();
         props.put("bootstrap.servers", bootstrapServers);
-        try (var admin = org.apache.kafka.clients.admin.AdminClient.create(props)) {
+        return props;
+    }
+
+    private void ensureTopic() {
+        try (AdminClient admin = AdminClient.create(adminProps())) {
             Set<String> existing = admin.listTopics().names().get();
             if (!existing.contains(TOPIC)) {
-                admin.createTopics(List.of(
-                        new org.apache.kafka.clients.admin.NewTopic(TOPIC, PARTITIONS, (short) 1)
-                )).all().get();
+                admin.createTopics(List.of(new NewTopic(TOPIC, INITIAL_PARTITIONS, (short) 1))).all().get();
+            } else {
+                // Узнаём текущее количество партиций
+                var desc = admin.describeTopics(List.of(TOPIC)).allTopicNames().get().get(TOPIC);
+                if (desc != null) {
+                    currentPartitions = desc.partitions().size();
+                }
             }
         } catch (Exception e) {
             log.warn("ensureTopic error: {}", e.getMessage());
+        }
+    }
+
+    private void resetTopic() {
+        try (AdminClient admin = AdminClient.create(adminProps())) {
+            admin.deleteTopics(List.of(TOPIC)).all().get();
+            // Ждём удаления
+            for (int i = 0; i < 20; i++) {
+                Thread.sleep(500);
+                Set<String> existing = admin.listTopics().names().get();
+                if (!existing.contains(TOPIC)) break;
+            }
+            admin.createTopics(List.of(new NewTopic(TOPIC, INITIAL_PARTITIONS, (short) 1))).all().get();
+            log.info("Rebalancing: topic recreated with {} partitions", INITIAL_PARTITIONS);
+        } catch (Exception e) {
+            log.warn("resetTopic error: {}", e.getMessage());
         }
     }
 }

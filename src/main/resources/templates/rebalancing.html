@@ -38,7 +38,7 @@
                     <ul style="padding-left:18px;margin:0;">
                         <li>Consumer <strong>присоединился</strong> к группе</li>
                         <li>Consumer <strong>упал</strong> или покинул группу</li>
-                        <li>Добавлены новые <strong>партиции</strong> в топик</li>
+                        <li>Добавлены новые <strong>партиции</strong> в топик (попробуйте кнопку «+ Партиция»)</li>
                     </ul>
                 </div>
             </div>
@@ -59,15 +59,29 @@
         </div>
     </div>
 
+    <!-- Info: metadata.max.age.ms -->
+    <div class="card mb-4" style="border-left:3px solid #8b5cf6;">
+        <div class="card-body py-3" style="font-size:.83rem;color:var(--c-text-secondary);">
+            <strong style="color:#5b21b6;">metadata.max.age.ms</strong> — consumer'ы не сразу обнаруживают новые партиции.
+            По умолчанию Kafka обновляет метаданные раз в <strong>5 минут</strong> (300 000 мс).
+            В этом демо значение уменьшено до <strong>1 минуты</strong> — после добавления партиции подождите до минуты
+            или нажмите «Обновить статус» чтобы проверить, обнаружили ли consumer'ы новую партицию.
+        </div>
+    </div>
+
     <!-- Управление -->
     <div class="card mb-4">
         <div class="card-body py-3">
             <div class="d-flex align-items-center gap-3 flex-wrap">
-                <button class="btn btn-primary-custom" onclick="addConsumer()" id="btnAdd">+ Добавить Consumer</button>
-                <button class="btn btn-outline-danger" onclick="removeConsumer()" id="btnRemove">- Удалить Consumer</button>
+                <button class="btn btn-primary-custom" onclick="addConsumer()" id="btnAdd">+ Consumer</button>
+                <button class="btn btn-outline-danger" onclick="removeConsumer()" id="btnRemove">- Consumer</button>
+                <div style="width:1px;height:28px;background:#e5e7eb;"></div>
+                <button class="btn btn-outline-custom" onclick="addPartition()" id="btnPartition">+ Партиция</button>
+                <div style="width:1px;height:28px;background:#e5e7eb;"></div>
+                <button class="btn btn-outline-secondary" onclick="refreshNow()" id="btnRefresh">Обновить статус</button>
                 <button class="btn btn-outline-secondary" onclick="resetAll()" id="btnReset">Сбросить всё</button>
                 <span class="ms-auto" style="font-size:.85rem;color:var(--c-text-muted);">
-                    Топик: <strong>rebalancing-topic</strong> · 6 партиций
+                    Топик: <strong>rebalancing-topic</strong> · <span id="partitionCount">6</span> партиций (макс. <span id="maxPartitions">12</span>)
                 </span>
             </div>
         </div>
@@ -206,12 +220,14 @@
     .rb-ev-assign { background:rgba(16,185,129,.05); border-left-color:#10b981; }
     .rb-ev-revoke { background:rgba(245,158,11,.05); border-left-color:#f59e0b; }
     .rb-ev-reset { background:rgba(107,114,128,.05); border-left-color:#6b7280; }
+    .rb-ev-partition { background:rgba(139,92,246,.05); border-left-color:#8b5cf6; }
 
     .rb-badge-add { background:#dbeafe; color:#1d4ed8; }
     .rb-badge-remove { background:#fee2e2; color:#991b1b; }
     .rb-badge-assign { background:#d1fae5; color:#065f46; }
     .rb-badge-revoke { background:#fef3c7; color:#92400e; }
     .rb-badge-reset { background:#f3f4f6; color:#374151; }
+    .rb-badge-partition { background:#ede9fe; color:#5b21b6; }
 
     .rb-spinner {
         display:inline-block; width:14px; height:14px;
@@ -250,12 +266,29 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-        document.getElementById('btnAdd').dataset.label = '+ Добавить Consumer';
-        document.getElementById('btnRemove').dataset.label = '- Удалить Consumer';
+        document.getElementById('btnAdd').dataset.label = '+ Consumer';
+        document.getElementById('btnRemove').dataset.label = '- Consumer';
+        document.getElementById('btnPartition').dataset.label = '+ Партиция';
         document.getElementById('btnReset').dataset.label = 'Сбросить всё';
         refresh();
         setInterval(refresh, 3000);
     });
+
+    async function refreshNow() {
+        lastJson = '';
+        const btn = document.getElementById('btnRefresh');
+        btn.disabled = true;
+        btn.textContent = 'Обновление...';
+        try {
+            const resp = await fetch('/rebalancing/status');
+            const data = await resp.json();
+            render(data);
+        } catch(e) { console.error(e); }
+        finally {
+            btn.disabled = false;
+            btn.textContent = 'Обновить статус';
+        }
+    }
 
     async function addConsumer() {
         setLoading('btnAdd', true, 'Rebalance...');
@@ -277,6 +310,17 @@
             render(data);
         } catch(e) { console.error(e); }
         finally { setLoading('btnRemove', false, '- Удалить Consumer'); }
+    }
+
+    async function addPartition() {
+        setLoading('btnPartition', true, 'Добавление...');
+        try {
+            const resp = await fetch('/rebalancing/add-partition', {method:'POST'});
+            const data = await resp.json();
+            lastJson = '';
+            render(data);
+        } catch(e) { console.error(e); }
+        finally { setLoading('btnPartition', false, '+ Партиция'); }
     }
 
     async function resetAll() {
@@ -307,6 +351,21 @@
         const allConsumers = data.allConsumers || [];
         const events = data.events || [];
         const totalP = data.totalPartitions || 6;
+        const maxP = data.maxPartitions || 12;
+
+        // Обновляем счётчик партиций
+        document.getElementById('partitionCount').textContent = totalP;
+        document.getElementById('maxPartitions').textContent = maxP;
+
+        // Блокируем кнопку если достигнут лимит
+        const btnP = document.getElementById('btnPartition');
+        if (totalP >= maxP) {
+            btnP.disabled = true;
+            btnP.textContent = 'Лимит';
+        } else if (!isLoading) {
+            btnP.disabled = false;
+            btnP.textContent = '+ Партиция';
+        }
 
         // Partition → consumer mapping
         const partMap = {};

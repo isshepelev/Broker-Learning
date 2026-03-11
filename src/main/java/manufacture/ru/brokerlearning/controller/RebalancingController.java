@@ -33,6 +33,12 @@ public class RebalancingController {
         return rebalancingService.removeConsumer();
     }
 
+    @PostMapping("/add-partition")
+    @ResponseBody
+    public Map<String, Object> addPartition() {
+        return rebalancingService.addPartition();
+    }
+
     @PostMapping("/reset")
     @ResponseBody
     public Map<String, Object> reset() {
