@@ -148,15 +148,21 @@
             <div class="card h-100 dlq-card-kafka">
                 <div class="card-header d-flex justify-content-between align-items-center" style="background:linear-gradient(135deg,#fef2f2,#fff);border-bottom:2px solid #fca5a5;">
                     <h5 class="mb-0" style="font-size:1rem;color:#991b1b;">Kafka DLT — «мёртвые» сообщения</h5>
-                    <span class="badge" style="background:#fee2e2;color:#991b1b;" id="kafkaDeadBadge">0</span>
+                    <div class="d-flex gap-2 align-items-center">
+                        <span class="badge" style="background:#fee2e2;color:#991b1b;" id="kafkaDeadBadge">0</span>
+                        <div id="kafkaDeadActions" style="display:none;" class="d-flex gap-1">
+                            <button class="btn btn-outline-success btn-sm dlq-act-btn" onclick="deadAction('retry-all','kafka')">Повторить все</button>
+                            <button class="btn btn-outline-primary btn-sm dlq-act-btn" onclick="deadAction('save-all-to-db','kafka')">Сохранить все в БД</button>
+                        </div>
+                    </div>
                 </div>
                 <div class="card-body p-0">
                     <div id="kafkaDeadEmpty" class="p-4 text-center">
                         <p class="text-muted mb-0">Пока нет сообщений в DLT</p>
                     </div>
-                    <div id="kafkaDeadWrap" style="max-height:300px;overflow-y:auto;display:none;">
+                    <div id="kafkaDeadWrap" style="max-height:400px;overflow-y:auto;display:none;">
                         <table class="table table-sm mb-0" style="font-size:.8rem;">
-                            <thead><tr><th>Время</th><th>Сообщение</th></tr></thead>
+                            <thead><tr><th>Время</th><th>Сообщение</th><th style="width:230px;">Действия</th></tr></thead>
                             <tbody id="kafkaDeadBody"></tbody>
                         </table>
                     </div>
@@ -167,19 +173,59 @@
             <div class="card h-100 dlq-card-rabbit">
                 <div class="card-header d-flex justify-content-between align-items-center" style="background:linear-gradient(135deg,#fef2f2,#fff);border-bottom:2px solid #fca5a5;">
                     <h5 class="mb-0" style="font-size:1rem;color:#991b1b;">RabbitMQ DLQ — «мёртвые» сообщения</h5>
-                    <span class="badge" style="background:#fee2e2;color:#991b1b;" id="rabbitDeadBadge">0</span>
+                    <div class="d-flex gap-2 align-items-center">
+                        <span class="badge" style="background:#fee2e2;color:#991b1b;" id="rabbitDeadBadge">0</span>
+                        <div id="rabbitDeadActions" style="display:none;" class="d-flex gap-1">
+                            <button class="btn btn-outline-success btn-sm dlq-act-btn" onclick="deadAction('retry-all','rabbit')">Повторить все</button>
+                            <button class="btn btn-outline-primary btn-sm dlq-act-btn" onclick="deadAction('save-all-to-db','rabbit')">Сохранить все в БД</button>
+                        </div>
+                    </div>
                 </div>
                 <div class="card-body p-0">
                     <div id="rabbitDeadEmpty" class="p-4 text-center">
                         <p class="text-muted mb-0">Пока нет сообщений в DLQ</p>
                     </div>
-                    <div id="rabbitDeadWrap" style="max-height:300px;overflow-y:auto;display:none;">
+                    <div id="rabbitDeadWrap" style="max-height:400px;overflow-y:auto;display:none;">
                         <table class="table table-sm mb-0" style="font-size:.8rem;">
-                            <thead><tr><th>Время</th><th>Сообщение</th></tr></thead>
+                            <thead><tr><th>Время</th><th>Сообщение</th><th style="width:230px;">Действия</th></tr></thead>
                             <tbody id="rabbitDeadBody"></tbody>
                         </table>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Сохранённые в БД -->
+    <div class="card mb-4">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0" style="font-size:1rem;">Сохранённые в БД — таблица <code>kafka_messages</code></h5>
+            <div class="d-flex gap-2 align-items-center">
+                <span class="badge" style="background:#e0f2fe;color:#0369a1;" id="savedBadge">0</span>
+                <button class="btn btn-sm btn-outline-custom" onclick="loadSaved()">Обновить</button>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            <div id="savedEmpty" class="p-4 text-center">
+                <p class="text-muted mb-0">Нет сохранённых сообщений. Нажмите «В БД» на мёртвом сообщении, чтобы сохранить его для аудита.</p>
+            </div>
+            <div id="savedWrap" class="table-responsive" style="max-height:500px;overflow-y:auto;display:none;">
+                <table class="table table-sm table-hover mb-0" style="font-size:.8rem;">
+                    <thead style="position:sticky;top:0;">
+                    <tr>
+                        <th style="width:40px;">id</th>
+                        <th>topic</th>
+                        <th>message_key</th>
+                        <th>message_value</th>
+                        <th>direction</th>
+                        <th>headers</th>
+                        <th>group_id</th>
+                        <th>timestamp</th>
+                        <th style="width:170px;">Действия</th>
+                    </tr>
+                    </thead>
+                    <tbody id="savedBody"></tbody>
+                </table>
             </div>
         </div>
     </div>
@@ -311,10 +357,18 @@
         color: var(--c-text-muted);
         white-space: nowrap;
     }
-    .dlq-dead-row td:last-child {
+    .dlq-dead-row td:nth-child(2) {
         font-family: 'SF Mono', Consolas, monospace;
         font-weight: 600;
         color: #991b1b;
+    }
+    .dlq-dead-actions {
+        white-space: nowrap;
+    }
+    .dlq-act-btn {
+        font-size: .72rem !important;
+        padding: 2px 8px !important;
+        font-weight: 600;
     }
 </style>
 
@@ -406,23 +460,117 @@
         }
     }
 
-    function renderDead(items, bodyId, emptyId, wrapId, badgeId) {
+    function renderDead(items, bodyId, emptyId, wrapId, badgeId, actionsId, source) {
         document.getElementById(badgeId).textContent = items.length;
+        document.getElementById(actionsId).style.display = items.length > 0 ? '' : 'none';
         if (items.length > 0) {
             document.getElementById(emptyId).style.display = 'none';
             document.getElementById(wrapId).style.display = '';
             const body = document.getElementById(bodyId);
             body.innerHTML = '';
-            items.forEach(function(item) {
+            items.forEach(function(item, idx) {
                 const tr = document.createElement('tr');
                 tr.className = 'dlq-dead-row';
-                tr.innerHTML = '<td>' + item.time + '</td><td>' + item.value + '</td>';
+                tr.innerHTML = '<td>' + item.time + '</td><td>' + item.value + '</td>'
+                    + '<td class="dlq-dead-actions">'
+                    + '<button class="btn btn-outline-success btn-sm dlq-act-btn" onclick="deadItemAction(\'retry\',\'' + source + '\',' + idx + ')">Повторить</button>'
+                    + '<button class="btn btn-outline-primary btn-sm dlq-act-btn" onclick="deadItemAction(\'save-to-db\',\'' + source + '\',' + idx + ')">В БД</button>'
+                    + '<button class="btn btn-outline-danger btn-sm dlq-act-btn" onclick="deadItemAction(\'delete-dead\',\'' + source + '\',' + idx + ')">Удалить</button>'
+                    + '</td>';
                 body.appendChild(tr);
             });
         } else {
             document.getElementById(emptyId).style.display = '';
             document.getElementById(wrapId).style.display = 'none';
         }
+    }
+
+    async function deadItemAction(action, source, index) {
+        try {
+            const resp = await fetch('/dlq-compare/' + action, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ source: source, index: index })
+            });
+            const data = await resp.json();
+            if (data.error) { showAlert('danger', data.error); return; }
+            if (action === 'retry') showAlert('success', 'Сообщение переотправлено');
+            if (action === 'save-to-db') { showAlert('success', 'Сохранено в БД'); loadSaved(); }
+            if (action === 'delete-dead') showAlert('warning', 'Удалено');
+            lastJson = '';
+            refresh();
+        } catch (e) { showAlert('danger', e.message); }
+    }
+
+    async function deadAction(action, source) {
+        try {
+            const resp = await fetch('/dlq-compare/' + action, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ source: source })
+            });
+            const data = await resp.json();
+            if (data.error) { showAlert('danger', data.error); return; }
+            const count = data.count || 0;
+            if (action === 'retry-all') showAlert('success', 'Переотправлено ' + count + ' сообщений');
+            if (action === 'save-all-to-db') { showAlert('success', 'Сохранено ' + count + ' в БД'); loadSaved(); }
+            lastJson = '';
+            refresh();
+        } catch (e) { showAlert('danger', e.message); }
+    }
+
+    async function loadSaved() {
+        try {
+            const resp = await fetch('/dlq-compare/saved');
+            const items = await resp.json();
+            document.getElementById('savedBadge').textContent = items.length;
+            if (items.length === 0) {
+                document.getElementById('savedEmpty').style.display = '';
+                document.getElementById('savedWrap').style.display = 'none';
+                return;
+            }
+            document.getElementById('savedEmpty').style.display = 'none';
+            document.getElementById('savedWrap').style.display = '';
+            const body = document.getElementById('savedBody');
+            body.innerHTML = '';
+            items.forEach(function(m) {
+                const tr = document.createElement('tr');
+                tr.innerHTML = '<td>' + m.id + '</td>'
+                    + '<td style="white-space:nowrap;">' + (m.source || '') + '</td>'
+                    + '<td style="font-family:monospace;color:var(--c-text-muted);">' + (m.key || '') + '</td>'
+                    + '<td style="font-family:monospace;color:#991b1b;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + (m.value || '') + '">' + (m.value || '') + '</td>'
+                    + '<td><span class="badge" style="background:#fee2e2;color:#991b1b;font-size:.7rem;">' + (m.direction || '') + '</span></td>'
+                    + '<td style="font-size:.72rem;color:var(--c-text-muted);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + (m.headers || '') + '">' + (m.headers || '-') + '</td>'
+                    + '<td style="font-size:.75rem;color:var(--c-text-muted);">' + (m.groupId || '-') + '</td>'
+                    + '<td style="font-size:.72rem;color:var(--c-text-muted);white-space:nowrap;">' + (m.time || '') + '</td>'
+                    + '<td class="dlq-dead-actions">'
+                    + '<button class="btn btn-outline-success btn-sm dlq-act-btn" onclick="savedAction(\'retry-saved\',' + m.id + ')">Повторить</button>'
+                    + '<button class="btn btn-outline-danger btn-sm dlq-act-btn" onclick="savedAction(\'delete-saved\',' + m.id + ')">Удалить</button>'
+                    + '</td>';
+                body.appendChild(tr);
+            });
+        } catch (e) { console.error(e); }
+    }
+
+    async function savedAction(action, id) {
+        try {
+            const resp = await fetch('/dlq-compare/' + action, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ id: id })
+            });
+            const data = await resp.json();
+            if (data.error) { showAlert('danger', data.error); return; }
+            if (action === 'retry-saved') {
+                showAlert('success', 'Переотправлено из БД');
+                lastJson = '';
+                setTimeout(refresh, 500);
+                setTimeout(refresh, 2000);
+                setTimeout(refresh, 4000);
+            }
+            if (action === 'delete-saved') showAlert('warning', 'Удалено из БД');
+            loadSaved();
+        } catch (e) { showAlert('danger', e.message); }
     }
 
     async function refresh() {
@@ -435,8 +583,8 @@
 
             renderEvents(data.kafkaEvents || [], 'kafkaLog', 'kafkaEmpty', 'kafkaWrap', 'kafkaBadge');
             renderEvents(data.rabbitEvents || [], 'rabbitLog', 'rabbitEmpty', 'rabbitWrap', 'rabbitBadge');
-            renderDead(data.kafkaDead || [], 'kafkaDeadBody', 'kafkaDeadEmpty', 'kafkaDeadWrap', 'kafkaDeadBadge');
-            renderDead(data.rabbitDead || [], 'rabbitDeadBody', 'rabbitDeadEmpty', 'rabbitDeadWrap', 'rabbitDeadBadge');
+            renderDead(data.kafkaDead || [], 'kafkaDeadBody', 'kafkaDeadEmpty', 'kafkaDeadWrap', 'kafkaDeadBadge', 'kafkaDeadActions', 'kafka');
+            renderDead(data.rabbitDead || [], 'rabbitDeadBody', 'rabbitDeadEmpty', 'rabbitDeadWrap', 'rabbitDeadBadge', 'rabbitDeadActions', 'rabbit');
         } catch (e) { console.error(e); }
     }
 
@@ -445,6 +593,7 @@
     });
 
     refresh();
+    loadSaved();
     setInterval(refresh, 2000);
 </script>
 </body>
