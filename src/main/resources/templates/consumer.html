@@ -106,34 +106,37 @@
         </div>
     </div>
 
-    <!-- Built-in consumer messages (from SimpleConsumer) -->
+    <!-- Существующие Consumer Groups -->
     <div class="card mt-4">
         <div class="card-header bg-white d-flex justify-content-between align-items-center">
-            <h5 class="mb-0" style="font-size: 1rem;">Встроенный Consumer <small class="text-muted">(main-consumer-group)</small></h5>
-            <div class="d-flex align-items-center gap-3">
-                <small class="text-muted" id="builtinCount"></small>
-                <button class="btn btn-sm btn-outline-custom" onclick="loadBuiltinMessages()">Обновить</button>
-            </div>
+            <h5 class="mb-0" style="font-size: 1rem;">Существующие Consumer Groups</h5>
+            <button class="btn btn-sm btn-outline-custom" onclick="loadExistingGroups()">Обновить</button>
         </div>
         <div class="card-body p-0">
-            <div id="builtinEmpty" class="p-4 text-center">
+            <div id="groupsEmpty" class="p-4 text-center">
                 <p class="text-muted mb-0">Загрузка...</p>
             </div>
-            <div id="builtinTableWrap" class="table-responsive" style="max-height: 400px; overflow-y: auto; display: none;">
-                <table class="table table-hover table-sm mb-0">
-                    <thead style="position: sticky; top: 0;">
-                    <tr>
-                        <th>Topic</th>
-                        <th>Key</th>
-                        <th>Value</th>
-                        <th>Partition</th>
-                        <th>Offset</th>
-                        <th>Время</th>
-                    </tr>
-                    </thead>
-                    <tbody id="builtinBody"></tbody>
-                </table>
+            <div id="groupsContent" style="display:none;">
+                <div id="groupsList" class="p-3">
+                    <div class="row g-3" id="groupsRow"></div>
+                </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Детали выбранной группы -->
+    <div class="card mt-3" id="groupDetailCard" style="display:none;">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0" style="font-size: 1rem;">
+                Группа: <span id="groupDetailName" style="color:var(--c-primary);"></span>
+            </h5>
+            <button class="btn btn-sm btn-outline-secondary" onclick="closeGroupDetail()">Закрыть</button>
+        </div>
+        <div class="card-body p-0">
+            <!-- Участники -->
+            <div id="groupMembers" class="p-3"></div>
+            <!-- Offsets -->
+            <div id="groupOffsets"></div>
         </div>
     </div>
 </div>
@@ -195,6 +198,43 @@
         from { background-color: var(--c-primary-light); }
         to { background-color: transparent; }
     }
+
+    .group-card {
+        border: 1.5px solid var(--c-border);
+        border-radius: var(--radius-sm);
+        padding: 1rem;
+        cursor: pointer;
+        transition: all var(--transition);
+    }
+    .group-card:hover {
+        border-color: var(--c-primary);
+        box-shadow: var(--shadow-md);
+    }
+    .group-card.active {
+        border-color: var(--c-primary);
+        background: var(--c-primary-soft);
+    }
+    .group-card .group-name {
+        font-weight: 700; font-size: .93rem; color: var(--c-text);
+    }
+    .group-card .group-meta {
+        font-size: .78rem; color: var(--c-text-muted); margin-top: .25rem;
+    }
+    .group-state {
+        display: inline-block; padding: .15em .5em; border-radius: 4px;
+        font-size: .7rem; font-weight: 700; text-transform: uppercase;
+    }
+    .group-state-stable { background: #d1fae5; color: #065f46; }
+    .group-state-empty { background: #f3f4f6; color: #6b7280; }
+    .group-state-dead { background: #fee2e2; color: #991b1b; }
+    .group-state-other { background: #fef3c7; color: #92400e; }
+
+    .member-card {
+        border: 1px solid var(--c-border); border-radius: 8px;
+        padding: .75rem; background: #fafafa;
+    }
+    .member-card .member-id { font-weight: 600; font-size: .82rem; color: var(--c-text); }
+    .member-card .member-meta { font-size: .75rem; color: var(--c-text-muted); }
 </style>
 
 <script>
@@ -449,58 +489,151 @@
         }
     }
 
-    // Load built-in consumer messages
-    async function loadBuiltinMessages() {
+    // ═══════ Existing Consumer Groups ═══════
+
+    let activeGroupId = null;
+
+    async function loadExistingGroups() {
         try {
-            const resp = await fetch('/consumer/messages');
-            const messages = await resp.json();
+            const resp = await fetch('/consumer-groups/list');
+            const groups = await resp.json();
 
-            document.getElementById('builtinCount').textContent = 'Сообщений: ' + messages.length;
-
-            if (messages.length === 0) {
-                document.getElementById('builtinEmpty').style.display = '';
-                document.getElementById('builtinEmpty').innerHTML = '<p class="text-muted mb-0">Нет сообщений от встроенного consumer\'а.</p>';
-                document.getElementById('builtinTableWrap').style.display = 'none';
+            if (groups.length === 0) {
+                document.getElementById('groupsEmpty').style.display = '';
+                document.getElementById('groupsEmpty').innerHTML = '<p class="text-muted mb-0">Нет пользовательских consumer groups.</p>';
+                document.getElementById('groupsContent').style.display = 'none';
                 return;
             }
 
-            if (messages.length === builtinPrevCount) return;
-            builtinPrevCount = messages.length;
+            document.getElementById('groupsEmpty').style.display = 'none';
+            document.getElementById('groupsContent').style.display = '';
 
-            document.getElementById('builtinEmpty').style.display = 'none';
-            document.getElementById('builtinTableWrap').style.display = '';
+            const row = document.getElementById('groupsRow');
+            row.innerHTML = '';
+            groups.forEach(g => {
+                const col = document.createElement('div');
+                col.className = 'col-md-4';
+                const stateClass = getStateClass(g.state);
+                const isActive = activeGroupId === g.groupId;
 
-            const tbody = document.getElementById('builtinBody');
-            tbody.innerHTML = '';
-            messages.forEach(function(msg) {
-                const tr = document.createElement('tr');
-                const truncVal = msg.messageValue && msg.messageValue.length > 60
-                    ? msg.messageValue.substring(0, 60) + '...' : (msg.messageValue || '-');
-                tr.innerHTML =
-                    '<td><span class="badge badge-topic">' + (msg.topic || '-') + '</span></td>' +
-                    '<td class="text-muted">' + (msg.messageKey || '-') + '</td>' +
-                    '<td title="' + (msg.messageValue || '').replace(/"/g, '&quot;') + '">' + truncVal + '</td>' +
-                    '<td>' + (msg.partitionNum != null ? msg.partitionNum : '-') + '</td>' +
-                    '<td>' + (msg.offsetNum != null ? msg.offsetNum : '-') + '</td>' +
-                    '<td class="text-muted">' + (msg.timestamp || '-') + '</td>';
-                tbody.appendChild(tr);
+                col.innerHTML =
+                    '<div class="group-card' + (isActive ? ' active' : '') + '" onclick="showGroupDetail(\'' + g.groupId + '\')">' +
+                    '<div class="d-flex justify-content-between align-items-start">' +
+                    '<div class="group-name">' + g.groupId + '</div>' +
+                    '<span class="group-state ' + stateClass + '">' + g.state + '</span>' +
+                    '</div>' +
+                    '<div class="group-meta">' +
+                    'Участников: <strong>' + g.members + '</strong>' +
+                    (g.partitionAssignor ? ' &middot; ' + g.partitionAssignor : '') +
+                    '</div>' +
+                    '<div class="group-meta">Координатор: ' + g.coordinator + '</div>' +
+                    '</div>';
+                row.appendChild(col);
             });
         } catch (err) {
-            console.error('Failed to load builtin messages:', err);
+            console.error('Failed to load groups:', err);
+            document.getElementById('groupsEmpty').innerHTML = '<p class="text-muted mb-0">Ошибка загрузки.</p>';
         }
+    }
+
+    function getStateClass(state) {
+        const s = (state || '').toUpperCase();
+        if (s === 'STABLE') return 'group-state-stable';
+        if (s === 'EMPTY') return 'group-state-empty';
+        if (s === 'DEAD') return 'group-state-dead';
+        return 'group-state-other';
+    }
+
+    async function showGroupDetail(groupId) {
+        activeGroupId = groupId;
+        loadExistingGroups(); // refresh cards to highlight
+
+        const card = document.getElementById('groupDetailCard');
+        card.style.display = '';
+        document.getElementById('groupDetailName').textContent = groupId;
+        document.getElementById('groupMembers').innerHTML = '<p class="text-muted">Загрузка...</p>';
+        document.getElementById('groupOffsets').innerHTML = '';
+
+        try {
+            const resp = await fetch('/consumer-groups/detail/' + encodeURIComponent(groupId));
+            const data = await resp.json();
+
+            // Members
+            const membersDiv = document.getElementById('groupMembers');
+            const members = data.members || [];
+            if (members.length === 0) {
+                membersDiv.innerHTML =
+                    '<div class="d-flex align-items-center gap-2 mb-2">' +
+                    '<span class="group-state ' + getStateClass(data.state) + '">' + data.state + '</span>' +
+                    '<span class="text-muted" style="font-size:.82rem;">Нет активных участников</span>' +
+                    '</div>';
+            } else {
+                let html = '<div class="d-flex align-items-center gap-2 mb-3">' +
+                    '<span class="group-state ' + getStateClass(data.state) + '">' + data.state + '</span>' +
+                    '<span style="font-size:.82rem;color:var(--c-text-muted);">Участников: ' + members.length + '</span>' +
+                    '</div>';
+                html += '<div class="row g-2 mb-3">';
+                members.forEach(m => {
+                    const parts = (m.partitions || []).map(p =>
+                        '<span class="partition-badge">' + p + '</span>'
+                    ).join(' ');
+                    html += '<div class="col-md-6">' +
+                        '<div class="member-card">' +
+                        '<div class="member-id">' + m.clientId + '</div>' +
+                        '<div class="member-meta">ID: ' + m.memberId + '</div>' +
+                        '<div class="member-meta">Host: ' + m.host + '</div>' +
+                        '<div class="mt-1" style="display:flex;gap:4px;flex-wrap:wrap;">' + (parts || '<span class="text-muted" style="font-size:.72rem;">нет партиций</span>') + '</div>' +
+                        '</div></div>';
+                });
+                html += '</div>';
+                membersDiv.innerHTML = html;
+            }
+
+            // Offsets table
+            const offsets = data.offsets || [];
+            if (offsets.length > 0) {
+                let html = '<div class="table-responsive" style="max-height:300px;overflow-y:auto;">' +
+                    '<table class="table table-hover table-sm mb-0">' +
+                    '<thead style="position:sticky;top:0;"><tr>' +
+                    '<th>Topic</th><th>Partition</th><th>Current Offset</th><th>End Offset</th><th>Lag</th>' +
+                    '</tr></thead><tbody>';
+                offsets.forEach(o => {
+                    const lagClass = o.lag > 0 ? 'style="color:#dc2626;font-weight:600;"' : '';
+                    html += '<tr>' +
+                        '<td><span class="badge badge-topic">' + o.topic + '</span></td>' +
+                        '<td><span class="partition-badge">P' + o.partition + '</span></td>' +
+                        '<td>' + o.currentOffset + '</td>' +
+                        '<td>' + o.endOffset + '</td>' +
+                        '<td ' + lagClass + '>' + o.lag + '</td>' +
+                        '</tr>';
+                });
+                html += '</tbody></table></div>';
+                html += '<div class="p-2 text-end" style="font-size:.82rem;color:var(--c-text-muted);">Общий lag: <strong style="color:' + (data.totalLag > 0 ? '#dc2626' : '#065f46') + ';">' + data.totalLag + '</strong></div>';
+                document.getElementById('groupOffsets').innerHTML = html;
+            }
+        } catch (err) {
+            console.error('Failed to load group detail:', err);
+            document.getElementById('groupMembers').innerHTML = '<p class="text-danger">Ошибка загрузки деталей.</p>';
+        }
+    }
+
+    function closeGroupDetail() {
+        activeGroupId = null;
+        document.getElementById('groupDetailCard').style.display = 'none';
+        loadExistingGroups();
     }
 
     // Init
     loadTopics();
     refreshConsumers();
     loadDynamicMessages();
-    loadBuiltinMessages();
+    loadExistingGroups();
 
     setInterval(() => {
         refreshConsumers();
         loadDynamicMessages();
     }, 2000);
-    setInterval(loadBuiltinMessages, 5000);
+    setInterval(loadExistingGroups, 5000);
 </script>
 </body>
 </html>
