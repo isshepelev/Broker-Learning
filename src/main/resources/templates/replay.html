@@ -131,6 +131,132 @@
             </div>
         </div>
     </div>
+
+    <!-- ===== Несколько Consumer Group на одном Topic ===== -->
+    <hr class="my-5">
+    <div class="page-header">
+        <h2>Несколько Consumer Group</h2>
+        <p>Главная особенность Kafka: <strong>несколько consumer group</strong> могут независимо читать один topic.
+            Каждая группа хранит свой offset — одна может прочитать всё, а другая ещё нет. Это позволяет строить
+            несколько независимых пайплайнов на одних данных.</p>
+    </div>
+
+    <!-- Уведомление практики -->
+    <div id="pAlertArea" style="display:none;" class="mb-4"></div>
+
+    <!-- Шаг 1: Выбор/создание топика -->
+    <div id="pSetupCard">
+        <div class="card mb-3">
+            <div class="card-header bg-white">
+                <h5 class="mb-0" style="font-size: 1rem;">1. Выберите или создайте топик</h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-5">
+                        <label class="form-label fw-semibold">Существующий топик</label>
+                        <select class="form-select" id="pTopicSelect">
+                            <option value="" disabled selected>Загрузка...</option>
+                        </select>
+                    </div>
+                    <div class="col-md-1 text-center align-self-end pb-2" style="font-size:.85rem;color:var(--c-text-muted);">или</div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-semibold">Новый топик</label>
+                        <input type="text" class="form-control" id="pNewTopicName" placeholder="Имя нового топика...">
+                    </div>
+                    <div class="col-md-2 d-grid">
+                        <button class="btn btn-primary-custom" onclick="pStartSession()" id="pBtnStart">Начать</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Активная сессия -->
+    <div id="pActiveSession" style="display:none;">
+        <!-- Инфо-бар -->
+        <div class="card mb-3">
+            <div class="card-body py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div class="d-flex gap-2 flex-wrap align-items-center">
+                    <span class="badge" style="background:#e0f2fe;color:#0369a1;font-size:.85rem;" id="pBadgeTopic">topic</span>
+                    <span class="badge" style="background:#f3e8ff;color:#7c3aed;" id="pBadgeTotal">Всего: 0</span>
+                </div>
+                <button class="btn btn-outline-danger btn-sm" onclick="pEndSession()">Завершить сессию</button>
+            </div>
+        </div>
+
+        <!-- Отправка сообщений (общая для всех consumer) -->
+        <div class="card mb-3">
+            <div class="card-body py-3">
+                <div class="d-flex align-items-center gap-3 flex-wrap">
+                    <input type="text" class="form-control" id="pCustomMsg" placeholder="Сообщение в topic..." style="flex:1;min-width:200px;">
+                    <button class="btn btn-primary-custom replay-btn" onclick="pSendCustom()">Отправить</button>
+                    <button class="btn btn-outline-custom replay-btn" onclick="pSend(5)">+5 тестовых</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Добавление consumer group -->
+        <div class="card mb-4">
+            <div class="card-header bg-white">
+                <h5 class="mb-0" style="font-size: 1rem;">2. Подключите consumer group (до 5)</h5>
+            </div>
+            <div class="card-body py-3">
+                <div class="d-flex align-items-center gap-3 flex-wrap">
+                    <select class="form-select" id="pGroupSelect" style="max-width:250px;">
+                        <option value="" disabled selected>Существующая...</option>
+                    </select>
+                    <span style="font-size:.8rem;color:var(--c-text-muted);">или</span>
+                    <input type="text" class="form-control" id="pGroupInput" placeholder="Имя новой группы..." style="max-width:250px;">
+                    <button class="btn btn-outline-custom" onclick="pAddConsumer()">Подключить</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Offset-шкала с маркерами всех consumer groups -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <div id="pOffsetBar" class="replay-offset-bar">
+                    <div class="replay-empty-hint">Отправьте сообщения, чтобы увидеть шкалу offset-ов</div>
+                </div>
+                <div class="replay-legend mt-3" id="pLegend" style="display:none;">
+                    <span><span class="replay-legend-dot" style="background:#e2e8f0;border:1px solid #94a3b8;"></span> Не прочитано</span>
+                    <span><span class="replay-legend-dot" style="background:#bfdbfe;border:1px solid #60a5fa;"></span> Частично</span>
+                    <span><span class="replay-legend-dot" style="background:#86efac;border:1px solid #22c55e;"></span> Все прочитали</span>
+                    <span id="pLegendConsumers"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Consumer group карточки -->
+        <div id="pConsumersContainer" class="mb-4"></div>
+
+        <!-- Все сообщения в topic -->
+        <div class="card mb-4">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0" style="font-size: 1rem;">Все сообщения в topic</h5>
+                <span class="badge" style="background:#f3e8ff;color:#7c3aed;" id="pAllCountBadge">0</span>
+            </div>
+            <div class="card-body p-0">
+                <div id="pAllEmpty" class="p-4 text-center">
+                    <p class="text-muted mb-0">Topic пуст</p>
+                </div>
+                <div id="pAllWrap" class="table-responsive" style="max-height:350px;overflow-y:auto;display:none;">
+                    <table class="table table-hover table-sm mb-0">
+                        <thead style="position:sticky;top:0;">
+                        <tr>
+                            <th style="width:60px;">Offset</th>
+                            <th>Key</th>
+                            <th>Value</th>
+                            <th style="width:40px;">P</th>
+                            <th id="pAllThConsumers" style="display:none;">Прочитано</th>
+                        </tr>
+                        </thead>
+                        <tbody id="pAllBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <div th:replace="~{fragments/layout :: scripts}"></div>
@@ -291,6 +417,91 @@
     }
     .replay-cell.new-cell {
         animation: cellAppear .3s ease;
+    }
+
+    /* Multi-consumer cards */
+    .consumer-card {
+        border: 2px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 12px;
+        position: relative;
+        transition: border-color .3s;
+    }
+    .consumer-card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+    }
+    .consumer-card-name {
+        font-weight: 700;
+        font-size: .95rem;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .consumer-color-dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        display: inline-block;
+    }
+    .consumer-card-badges {
+        display: flex;
+        gap: 6px;
+        font-size: .78rem;
+    }
+    .consumer-card-controls {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+    .consumer-card-controls .btn {
+        font-size: .82rem;
+        padding: 5px 12px;
+    }
+
+    /* Colored read-indicator dots on offset cells */
+    .cell-readers {
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        display: flex;
+        gap: 1px;
+        flex-wrap: wrap;
+        max-width: 24px;
+        justify-content: flex-end;
+    }
+    .cell-reader-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+    }
+
+    /* Table consumer dots */
+    .table-reader-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        display: inline-block;
+        margin-right: 2px;
+        position: relative;
+    }
+    .table-reader-dot[title]:hover::after {
+        content: attr(title);
+        position: absolute;
+        bottom: 14px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #1e293b;
+        color: #fff;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: .7rem;
+        white-space: nowrap;
+        z-index: 10;
     }
 </style>
 
@@ -576,6 +787,491 @@
 
     refreshStatus();
     setInterval(refreshStatus, 3000);
+
+    // ===== Multi-consumer practice mode =====
+    const CONSUMER_COLORS = ['#3b82f6', '#ef4444', '#f59e0b', '#10b981', '#8b5cf6'];
+    let pLastStatusJson = '';
+    let pStatusInterval = null;
+
+    function pShowAlert(type, msg) {
+        const area = document.getElementById('pAlertArea');
+        area.innerHTML = '<div class="alert alert-' + type + ' py-2 mb-0" style="font-size:.85rem;">' + msg + '</div>';
+        area.style.display = '';
+        setTimeout(function() { area.style.display = 'none'; }, 4000);
+    }
+
+    async function pLoadTopics() {
+        try {
+            const resp = await fetch('/replay/practice/topics');
+            const topics = await resp.json();
+            const sel = document.getElementById('pTopicSelect');
+            sel.innerHTML = '';
+            const list = Array.isArray(topics) ? topics : [];
+            if (list.length === 0) {
+                sel.innerHTML = '<option value="" disabled selected>Нет топиков</option>';
+            } else {
+                sel.innerHTML = '<option value="" disabled selected>Выберите...</option>';
+                list.forEach(function(t) {
+                    const opt = document.createElement('option');
+                    opt.value = t; opt.textContent = t;
+                    sel.appendChild(opt);
+                });
+            }
+        } catch (err) {}
+    }
+
+    async function pLoadGroups() {
+        try {
+            const resp = await fetch('/replay/practice/groups');
+            const groups = await resp.json();
+            const sel = document.getElementById('pGroupSelect');
+            sel.innerHTML = '';
+            const list = Array.isArray(groups) ? groups : [];
+            if (list.length === 0) {
+                sel.innerHTML = '<option value="" disabled selected>Нет групп</option>';
+            } else {
+                sel.innerHTML = '<option value="" disabled selected>Существующая...</option>';
+                list.forEach(function(g) {
+                    const opt = document.createElement('option');
+                    opt.value = g; opt.textContent = g;
+                    sel.appendChild(opt);
+                });
+            }
+        } catch (err) {}
+    }
+
+    async function pStartSession() {
+        const selectVal = document.getElementById('pTopicSelect').value;
+        const newName = document.getElementById('pNewTopicName').value.trim();
+
+        let topic = selectVal;
+
+        // Если введено новое имя — сначала создаём топик
+        if (newName) {
+            const createResp = await fetch('/replay/practice/create-topic', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ topic: newName })
+            });
+            const createData = await createResp.json();
+            if (createData.error) {
+                // Если уже существует — просто используем его
+                if (!createData.error.includes('уже существует')) {
+                    pShowAlert('danger', createData.error);
+                    return;
+                }
+            }
+            topic = newName;
+        }
+
+        if (!topic) {
+            pShowAlert('danger', 'Выберите существующий или введите имя нового топика');
+            return;
+        }
+
+        const btn = document.getElementById('pBtnStart');
+        btn.disabled = true;
+        try {
+            const resp = await fetch('/replay/practice/session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ topic: topic })
+            });
+            const data = await resp.json();
+            if (data.error) {
+                pShowAlert('danger', data.error);
+                btn.disabled = false;
+                return;
+            }
+
+            document.getElementById('pSetupCard').style.display = 'none';
+            document.getElementById('pActiveSession').style.display = '';
+            document.getElementById('pBadgeTopic').textContent = 'Topic: ' + topic;
+
+            pLastStatusJson = '';
+            pLoadGroups();
+            pRefreshStatus();
+            pStatusInterval = setInterval(pRefreshStatus, 3000);
+        } catch (err) {
+            pShowAlert('danger', 'Ошибка: ' + err.message);
+        }
+        btn.disabled = false;
+    }
+
+    async function pEndSession() {
+        try { await fetch('/replay/practice/end', { method: 'POST' }); } catch (err) {}
+        document.getElementById('pSetupCard').style.display = '';
+        document.getElementById('pActiveSession').style.display = 'none';
+        document.getElementById('pConsumersContainer').innerHTML = '';
+        if (pStatusInterval) { clearInterval(pStatusInterval); pStatusInterval = null; }
+        pLoadTopics();
+    }
+
+    async function pAddConsumer() {
+        const groupInput = document.getElementById('pGroupInput').value.trim();
+        const groupSelect = document.getElementById('pGroupSelect').value;
+        const group = groupInput || groupSelect;
+        if (!group) {
+            pShowAlert('danger', 'Выберите или введите имя consumer group');
+            return;
+        }
+        try {
+            const resp = await fetch('/replay/practice/add-consumer', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ group: group })
+            });
+            const data = await resp.json();
+            if (data.error) {
+                pShowAlert('danger', data.error);
+            } else {
+                pShowAlert('success', 'Consumer group "' + group + '" подключен');
+                document.getElementById('pGroupInput').value = '';
+                document.getElementById('pGroupSelect').selectedIndex = 0;
+                pLastStatusJson = '';
+                setTimeout(pRefreshStatus, 300);
+            }
+        } catch (err) {
+            pShowAlert('danger', 'Ошибка: ' + err.message);
+        }
+    }
+
+    async function pRemoveConsumer(group) {
+        try {
+            await fetch('/replay/practice/remove-consumer', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ group: group })
+            });
+            pLastStatusJson = '';
+            setTimeout(pRefreshStatus, 300);
+        } catch (err) {}
+    }
+
+    async function pSend(count) {
+        try {
+            const resp = await fetch('/replay/practice/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ count: count })
+            });
+            const data = await resp.json();
+            if (data.success) {
+                pShowAlert('success', 'Отправлено ' + data.count + ' сообщений');
+            } else {
+                pShowAlert('danger', data.error || 'Ошибка');
+            }
+            setTimeout(pRefreshStatus, 500);
+        } catch (err) {
+            pShowAlert('danger', 'Ошибка: ' + err.message);
+        }
+    }
+
+    async function pSendCustom() {
+        const input = document.getElementById('pCustomMsg');
+        const value = input.value.trim();
+        if (!value) { pShowAlert('danger', 'Введите текст'); return; }
+        try {
+            const resp = await fetch('/replay/practice/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ customMessage: value })
+            });
+            const data = await resp.json();
+            if (data.success) {
+                pShowAlert('success', 'Отправлено');
+                input.value = '';
+            } else {
+                pShowAlert('danger', data.error || 'Ошибка');
+            }
+            setTimeout(pRefreshStatus, 500);
+        } catch (err) {
+            pShowAlert('danger', 'Ошибка: ' + err.message);
+        }
+    }
+
+    async function pRead(group, mode, btn) {
+        const origHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+        try {
+            const resp = await fetch('/replay/practice/read', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ group: group, mode: mode })
+            });
+            const data = await resp.json();
+            if (data.success) {
+                const n = data.count || 0;
+                if (n > 0) {
+                    pShowAlert('success', group + ': прочитано ' + n + ' (offset ' + data.startOffset + ' → ' + data.endOffset + ')');
+                } else {
+                    pShowAlert('info', group + ': нет новых сообщений');
+                }
+            } else {
+                pShowAlert('danger', data.error || 'Ошибка');
+            }
+            pLastStatusJson = '';
+            setTimeout(pRefreshStatus, 300);
+        } catch (err) {
+            pShowAlert('danger', err.message);
+        }
+        btn.disabled = false;
+        btn.innerHTML = origHtml;
+    }
+
+    async function pReset(group) {
+        try {
+            const resp = await fetch('/replay/practice/reset', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ group: group })
+            });
+            const data = await resp.json();
+            if (data.success) {
+                pShowAlert('warning', group + ': offset сброшен на 0');
+            } else {
+                pShowAlert('danger', data.error || 'Ошибка');
+            }
+            pLastStatusJson = '';
+            setTimeout(pRefreshStatus, 300);
+        } catch (err) {}
+    }
+
+    async function pRefreshStatus() {
+        try {
+            const resp = await fetch('/replay/practice/status');
+            const data = await resp.json();
+            if (!data.sessionActive) return;
+
+            const json = JSON.stringify(data);
+            if (json === pLastStatusJson) return;
+            pLastStatusJson = json;
+
+            const total = data.totalMessages || 0;
+            const allMsgs = data.allMessages || [];
+            const consumers = data.consumerStatuses || [];
+
+            document.getElementById('pBadgeTotal').textContent = 'Всего: ' + total;
+
+            // === Offset bar: нейтральные ячейки + цветные маркеры consumer-ов ===
+            const bar = document.getElementById('pOffsetBar');
+            if (allMsgs.length > 0) {
+                document.getElementById('pLegend').style.display = '';
+                bar.innerHTML = '';
+
+                // Собираем committed offsets для каждого consumer
+                const commitMap = {};
+                consumers.forEach(function(c, idx) {
+                    commitMap[c.groupId] = { offset: c.committedOffset || 0, color: CONSUMER_COLORS[idx % CONSUMER_COLORS.length] };
+                });
+
+                allMsgs.forEach(function(m) {
+                    const cell = document.createElement('div');
+                    const offset = parseInt(m.offset);
+                    cell.className = 'replay-cell';
+                    cell.textContent = offset;
+
+                    // Определяем кто прочитал эту ячейку
+                    const readers = [];
+                    consumers.forEach(function(c, idx) {
+                        if (offset < (c.committedOffset || 0)) {
+                            readers.push({ groupId: c.groupId, color: CONSUMER_COLORS[idx % CONSUMER_COLORS.length] });
+                        }
+                    });
+
+                    // Цвет ячейки
+                    if (consumers.length === 0) {
+                        cell.style.background = '#cbd5e1';
+                        cell.style.color = '#334155';
+                    } else if (readers.length === consumers.length) {
+                        // Все прочитали
+                        cell.style.background = '#86efac';
+                        cell.style.color = '#14532d';
+                    } else if (readers.length > 0) {
+                        // Прочитали некоторые
+                        cell.style.background = '#bfdbfe';
+                        cell.style.color = '#1e3a5f';
+                    } else {
+                        // Никто не прочитал
+                        cell.style.background = '#e2e8f0';
+                        cell.style.color = '#64748b';
+                    }
+
+                    // Tooltip
+                    const readerNames = readers.map(function(r) { return r.groupId; });
+                    if (readers.length > 0) {
+                        cell.title = m.key + ': ' + m.value + '\nПрочитано: ' + readerNames.join(', ');
+                    } else {
+                        cell.title = m.key + ': ' + m.value + '\nНе прочитано';
+                    }
+
+                    // Цветные точки на ячейке — кто прочитал
+                    if (readers.length > 0 && consumers.length > 0) {
+                        const dotsDiv = document.createElement('div');
+                        dotsDiv.className = 'cell-readers';
+                        readers.forEach(function(r) {
+                            const dot = document.createElement('span');
+                            dot.className = 'cell-reader-dot';
+                            dot.style.background = r.color;
+                            dotsDiv.appendChild(dot);
+                        });
+                        cell.appendChild(dotsDiv);
+                    }
+
+                    // Маркеры-стрелки — текущая позиция consumer
+                    const markers = [];
+                    consumers.forEach(function(c, idx) {
+                        if (offset === (c.committedOffset || 0)) {
+                            markers.push(CONSUMER_COLORS[idx % CONSUMER_COLORS.length]);
+                        }
+                        if ((c.committedOffset || 0) >= total && offset === total - 1) {
+                            markers.push(CONSUMER_COLORS[idx % CONSUMER_COLORS.length]);
+                        }
+                    });
+                    if (markers.length > 0) {
+                        const markerDiv = document.createElement('div');
+                        markerDiv.style.cssText = 'position:absolute;bottom:-18px;left:50%;transform:translateX(-50%);display:flex;gap:2px;';
+                        markers.forEach(function(color) {
+                            const tri = document.createElement('span');
+                            tri.textContent = '\u25BC';
+                            tri.style.cssText = 'font-size:.65rem;color:' + color + ';font-weight:800;';
+                            markerDiv.appendChild(tri);
+                        });
+                        cell.appendChild(markerDiv);
+                    }
+
+                    bar.appendChild(cell);
+                });
+
+                // Легенда consumer-ов
+                const legendC = document.getElementById('pLegendConsumers');
+                legendC.innerHTML = '';
+                consumers.forEach(function(c, idx) {
+                    const color = CONSUMER_COLORS[idx % CONSUMER_COLORS.length];
+                    legendC.innerHTML += '<span style="margin-left:12px;">'
+                        + '<span class="replay-legend-dot" style="background:' + color + ';"></span> '
+                        + c.groupId + '</span>';
+                });
+            } else {
+                bar.innerHTML = '<div class="replay-empty-hint">Отправьте сообщения, чтобы увидеть шкалу offset-ов</div>';
+                document.getElementById('pLegend').style.display = 'none';
+            }
+
+            // === Consumer group карточки ===
+            const container = document.getElementById('pConsumersContainer');
+            container.innerHTML = '';
+            consumers.forEach(function(c, idx) {
+                const color = CONSUMER_COLORS[idx % CONSUMER_COLORS.length];
+                const committed = c.committedOffset || 0;
+                const unread = c.unread || 0;
+                const gid = c.groupId;
+                const escapedGid = gid.replace(/'/g, "\\'");
+
+                const card = document.createElement('div');
+                card.className = 'consumer-card';
+                card.style.borderLeftColor = color;
+                card.style.borderLeftWidth = '4px';
+                card.innerHTML =
+                    '<div class="consumer-card-header">'
+                    + '  <div class="consumer-card-name">'
+                    + '    <span class="consumer-color-dot" style="background:' + color + ';"></span>'
+                    + '    ' + gid
+                    + '  </div>'
+                    + '  <div class="consumer-card-badges">'
+                    + '    <span class="badge" style="background:#dcfce7;color:#166534;">Прочитано: ' + committed + '</span>'
+                    + '    <span class="badge" style="background:#fef3c7;color:#92400e;">Осталось: ' + unread + '</span>'
+                    + '  </div>'
+                    + '</div>'
+                    + '<div class="consumer-card-controls">'
+                    + '  <button class="btn btn-outline-custom btn-sm" onclick="pRead(\'' + escapedGid + '\',\'one\',this)">&#9654; Прочитать 1</button>'
+                    + '  <button class="btn btn-outline-custom btn-sm" onclick="pRead(\'' + escapedGid + '\',\'all\',this)">&#9654;&#9654; Прочитать все</button>'
+                    + '  <button class="btn btn-sm" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;" onclick="pReset(\'' + escapedGid + '\')">&#8634; Сброс на 0</button>'
+                    + '  <button class="btn btn-outline-danger btn-sm ms-auto" onclick="pRemoveConsumer(\'' + escapedGid + '\')">&#10005; Убрать</button>'
+                    + '</div>';
+                container.appendChild(card);
+            });
+
+            if (consumers.length === 0) {
+                container.innerHTML = '<div class="text-center text-muted py-3" style="font-size:.85rem;">Подключите хотя бы один consumer group</div>';
+            }
+
+            // === All messages table ===
+            const hasConsumers = consumers.length > 0;
+            document.getElementById('pAllThConsumers').style.display = hasConsumers ? '' : 'none';
+
+            if (allMsgs.length > 0) {
+                document.getElementById('pAllEmpty').style.display = 'none';
+                document.getElementById('pAllWrap').style.display = '';
+                const tbody = document.getElementById('pAllBody');
+                tbody.innerHTML = '';
+                allMsgs.forEach(function(m) {
+                    const tr = document.createElement('tr');
+                    const offset = parseInt(m.offset);
+
+                    // Цветные точки — кто прочитал
+                    let dotsHtml = '';
+                    if (hasConsumers) {
+                        consumers.forEach(function(c, idx) {
+                            const color = CONSUMER_COLORS[idx % CONSUMER_COLORS.length];
+                            const read = offset < (c.committedOffset || 0);
+                            if (read) {
+                                dotsHtml += '<span class="table-reader-dot" style="background:' + color + ';" title="' + c.groupId + '"></span>';
+                            } else {
+                                dotsHtml += '<span class="table-reader-dot" style="background:#e2e8f0;border:1px solid #cbd5e1;" title="' + c.groupId + ' (не прочитано)"></span>';
+                            }
+                        });
+                    }
+
+                    tr.innerHTML = '<td><strong>' + m.offset + '</strong></td>'
+                        + '<td>' + m.key + '</td>'
+                        + '<td>' + m.value + '</td>'
+                        + '<td>' + m.partition + '</td>'
+                        + (hasConsumers ? '<td>' + dotsHtml + '</td>' : '');
+                    tbody.appendChild(tr);
+                });
+                document.getElementById('pAllCountBadge').textContent = allMsgs.length;
+            } else {
+                document.getElementById('pAllEmpty').style.display = '';
+                document.getElementById('pAllWrap').style.display = 'none';
+                document.getElementById('pAllCountBadge').textContent = '0';
+            }
+        } catch (err) {
+            console.error(err);
+        }
+    }
+
+    // Инициализация
+    pLoadTopics();
+
+    document.getElementById('pTopicSelect').addEventListener('change', function() {
+        document.getElementById('pNewTopicName').value = '';
+    });
+    document.getElementById('pNewTopicName').addEventListener('input', function() {
+        document.getElementById('pTopicSelect').selectedIndex = 0;
+    });
+    document.getElementById('pGroupSelect').addEventListener('change', function() {
+        document.getElementById('pGroupInput').value = '';
+    });
+    document.getElementById('pGroupInput').addEventListener('input', function() {
+        document.getElementById('pGroupSelect').selectedIndex = 0;
+    });
+
+    // Восстанавливаем активную сессию
+    (async function() {
+        try {
+            const resp = await fetch('/replay/practice/status');
+            const data = await resp.json();
+            if (data.sessionActive) {
+                document.getElementById('pSetupCard').style.display = 'none';
+                document.getElementById('pActiveSession').style.display = '';
+                document.getElementById('pBadgeTopic').textContent = 'Topic: ' + data.topicName;
+                pLoadGroups();
+                pRefreshStatus();
+                pStatusInterval = setInterval(pRefreshStatus, 3000);
+            }
+        } catch (err) {}
+    })();
 </script>
 </body>
 </html>
