@@ -109,6 +109,23 @@
             background: rgba(245,158,11,.2);
             border-color: var(--c-accent);
         }
+        .header-reset-btn {
+            color: #ef4444;
+            font-weight: 600;
+            font-size: .82rem;
+            padding: .4rem .9rem;
+            border: 1.5px solid rgba(239,68,68,.4);
+            border-radius: 50px;
+            background: transparent;
+            cursor: pointer;
+            transition: all var(--transition);
+            white-space: nowrap;
+        }
+        .header-reset-btn:hover {
+            color: #fff;
+            background: rgba(239,68,68,.8);
+            border-color: #ef4444;
+        }
 
         /* Навигация — горизонтальная полоса pill-кнопок */
         .nav-strip {
@@ -504,7 +521,10 @@
             </svg>
             Broker Learning
         </a>
-        <a class="header-external" href="http://localhost:8090" target="_blank" rel="noopener">Kafka UI &#8599;</a>
+        <div class="d-flex align-items-center gap-3">
+            <a class="header-external" href="http://localhost:8090" target="_blank" rel="noopener">Kafka UI &#8599;</a>
+            <button class="header-reset-btn" onclick="globalReset()" id="globalResetBtn">Reset</button>
+        </div>
     </div>
     <nav class="nav-strip">
         <a class="nav-pill" th:classappend="${currentPage == 'dashboard' ? 'active' : ''}" href="/" th:href="@{/}">Dashboard</a>
@@ -532,6 +552,29 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
             integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
             crossorigin="anonymous"></script>
+    <script>
+        async function globalReset() {
+            if (!confirm('Сбросить всё? Будут удалены все пользовательские топики, consumer group-ы, записи из БД и остановлены consumer-ы.')) return;
+            const btn = document.getElementById('globalResetBtn');
+            btn.disabled = true;
+            btn.textContent = 'Сброс...';
+            try {
+                const resp = await fetch('/api/reset', { method: 'POST' });
+                const data = await resp.json();
+                if (data.success) {
+                    const actions = data.actions || [];
+                    alert('Reset выполнен:\n\n' + actions.join('\n'));
+                    location.reload();
+                } else {
+                    alert('Ошибка reset');
+                }
+            } catch (e) {
+                alert('Ошибка: ' + e.message);
+            }
+            btn.disabled = false;
+            btn.textContent = 'Reset';
+        }
+    </script>
 </div>
 
 </html>
