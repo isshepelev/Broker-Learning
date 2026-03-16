@@ -1,12 +1,14 @@
 package manufacture.ru.brokerlearning.controller;
 
 import lombok.RequiredArgsConstructor;
+import manufacture.ru.brokerlearning.service.RebalancingPracticeService;
 import manufacture.ru.brokerlearning.service.RebalancingService;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
+import java.util.Set;
 
 @Controller
 @RequestMapping("/rebalancing")
@@ -14,12 +16,15 @@ import java.util.Map;
 public class RebalancingController {
 
     private final RebalancingService rebalancingService;
+    private final RebalancingPracticeService practiceService;
 
     @GetMapping("")
     public String page(Model model) {
         model.addAttribute("currentPage", "rebalancing");
         return "rebalancing";
     }
+
+    // ───── Демо ─────
 
     @PostMapping("/add")
     @ResponseBody
@@ -49,5 +54,52 @@ public class RebalancingController {
     @ResponseBody
     public Map<String, Object> status() {
         return rebalancingService.getStatus();
+    }
+
+    // ───── Практика ─────
+
+    @GetMapping("/practice/topics")
+    @ResponseBody
+    public Set<String> practiceTopics() {
+        return practiceService.listTopics();
+    }
+
+    @PostMapping("/practice/create-session")
+    @ResponseBody
+    public Map<String, Object> practiceCreateSession(
+            @RequestParam String topicName,
+            @RequestParam String groupId,
+            @RequestParam int partitions) {
+        return practiceService.createSession(topicName, groupId, partitions);
+    }
+
+    @PostMapping("/practice/add")
+    @ResponseBody
+    public Map<String, Object> practiceAddConsumer() {
+        return practiceService.addConsumer();
+    }
+
+    @PostMapping("/practice/remove")
+    @ResponseBody
+    public Map<String, Object> practiceRemoveConsumer() {
+        return practiceService.removeConsumer();
+    }
+
+    @PostMapping("/practice/add-partition")
+    @ResponseBody
+    public Map<String, Object> practiceAddPartition() {
+        return practiceService.addPartition();
+    }
+
+    @PostMapping("/practice/reset")
+    @ResponseBody
+    public Map<String, Object> practiceReset() {
+        return practiceService.reset();
+    }
+
+    @GetMapping("/practice/status")
+    @ResponseBody
+    public Map<String, Object> practiceStatus() {
+        return practiceService.getStatus();
     }
 }

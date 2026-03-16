@@ -126,6 +126,127 @@
             </div>
         </div>
     </div>
+
+    <!-- ═══════════════════════════════════════════════ -->
+    <!--                РЕЖИМ ПРАКТИКИ                  -->
+    <!-- ═══════════════════════════════════════════════ -->
+
+    <div style="margin-top:48px; margin-bottom:24px; border-top:3px solid #0d9488; padding-top:32px;">
+        <h3 style="color:#0d9488; margin-bottom:4px;">Свой Consumer Group</h3>
+        <p style="font-size:.88rem; color:var(--c-text-secondary);">
+            Создайте собственный топик и consumer-группу, добавляйте consumer'ов, отправляйте сообщения
+            и наблюдайте за ребалансингом в реальном времени.
+        </p>
+    </div>
+
+    <!-- Настройка сессии -->
+    <div class="card mb-4" id="prSetupCard">
+        <div class="card-header" style="background:linear-gradient(135deg,#ccfbf1,#fff);border-bottom:2px solid #5eead4;">
+            <h5 class="mb-0" style="font-size:.95rem;color:#0f766e;">Настройка сессии</h5>
+        </div>
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-4">
+                    <label class="form-label" style="font-size:.82rem;font-weight:600;">Топик</label>
+                    <div class="pr-topic-tabs mb-2">
+                        <button type="button" class="pr-topic-tab active" id="prTabExisting" onclick="prSwitchTopicTab('existing')">Существующий</button>
+                        <button type="button" class="pr-topic-tab" id="prTabNew" onclick="prSwitchTopicTab('new')">Создать новый</button>
+                    </div>
+                    <div id="prTopicExisting">
+                        <select class="form-select form-select-sm" id="prTopicSelect">
+                            <option value="" disabled>Загрузка...</option>
+                        </select>
+                    </div>
+                    <div id="prTopicNew" style="display:none;">
+                        <input type="text" class="form-control form-control-sm" id="prTopicNameInput"
+                               placeholder="my-new-topic">
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label" style="font-size:.82rem;font-weight:600;">Consumer Group ID</label>
+                    <input type="text" class="form-control form-control-sm" id="prGroupId"
+                           value="practice-group" placeholder="my-group">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label" style="font-size:.82rem;font-weight:600;">Партиций</label>
+                    <input type="number" class="form-control form-control-sm" id="prPartitions"
+                           value="4" min="1" max="20">
+                </div>
+                <div class="col-md-4 d-flex gap-2">
+                    <button class="btn btn-primary-custom btn-sm" onclick="prCreateSession()" id="prBtnCreate">
+                        Создать сессию
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="prReset()" id="prBtnReset" disabled>
+                        Сбросить
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Управление практикой (показываем после создания сессии) -->
+    <div id="prControls" style="display:none;">
+        <!-- Инфо текущей сессии -->
+        <div class="card mb-3" style="border-left:3px solid #0d9488;">
+            <div class="card-body py-2 d-flex align-items-center gap-3 flex-wrap" style="font-size:.83rem;">
+                <span>Топик: <strong id="prInfoTopic"></strong></span>
+                <span style="color:#d1d5db;">|</span>
+                <span>Группа: <strong id="prInfoGroup"></strong></span>
+                <span style="color:#d1d5db;">|</span>
+                <span>Партиций: <strong id="prInfoPartitions"></strong> / <span id="prInfoMaxP"></span></span>
+                <span style="color:#d1d5db;">|</span>
+                <span>Consumer'ов: <strong id="prInfoConsumers"></strong></span>
+            </div>
+        </div>
+
+        <!-- Кнопки управления -->
+        <div class="card mb-4">
+            <div class="card-body py-3">
+                <div class="d-flex align-items-center gap-3 flex-wrap">
+                    <button class="btn btn-primary-custom btn-sm" onclick="prAddConsumer()" id="prBtnAdd">+ Consumer</button>
+                    <button class="btn btn-outline-danger btn-sm" onclick="prRemoveConsumer()" id="prBtnRemove">- Consumer</button>
+                    <div style="width:1px;height:28px;background:#e5e7eb;"></div>
+                    <button class="btn btn-outline-custom btn-sm" onclick="prAddPartition()" id="prBtnPartition">+ Партиция</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Визуализация практики -->
+        <div class="card mb-4">
+            <div class="card-header bg-white">
+                <h5 class="mb-0" style="font-size:1rem;">Распределение партиций</h5>
+            </div>
+            <div class="card-body">
+                <div class="rb-partitions-label">Партиции топика:</div>
+                <div class="rb-partitions-row" id="prPartitionsRow"></div>
+
+                <div class="rb-arrow-zone"></div>
+
+                <div class="rb-consumers-label" id="prConsumersLabel" style="display:none;">Consumer'ы в группе:</div>
+                <div class="rb-consumers-row" id="prConsumersRow"></div>
+
+                <div id="prEmptyState" class="text-center py-4">
+                    <p class="text-muted mb-0">Нажмите «+ Consumer» чтобы начать практику</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Лог событий практики -->
+        <div class="card">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                <h5 class="mb-0" style="font-size:1rem;">Лог событий (практика)</h5>
+                <span class="badge" style="background:#e5e7eb;color:#374151;" id="prEventBadge">0</span>
+            </div>
+            <div class="card-body p-0">
+                <div id="prEventEmpty" class="p-4 text-center">
+                    <p class="text-muted mb-0">Пока нет событий</p>
+                </div>
+                <div id="prEventWrap" style="max-height:400px;overflow-y:auto;display:none;padding:.75rem;">
+                    <div id="prEventLog"></div>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <div th:replace="~{fragments/layout :: scripts}"></div>
@@ -228,6 +349,21 @@
     .rb-badge-revoke { background:#fef3c7; color:#92400e; }
     .rb-badge-reset { background:#f3f4f6; color:#374151; }
     .rb-badge-partition { background:#ede9fe; color:#5b21b6; }
+    .rb-badge-session { background:#ccfbf1; color:#0f766e; }
+    .rb-ev-session { background:rgba(13,148,136,.05); border-left-color:#0d9488; }
+
+    .pr-topic-tabs {
+        display:flex; gap:0; border-radius:6px; overflow:hidden;
+        border:1px solid #e5e7eb;
+    }
+    .pr-topic-tab {
+        flex:1; padding:3px 0; font-size:.75rem; font-weight:600;
+        border:none; background:#f9fafb; color:#6b7280; cursor:pointer;
+        transition:all .2s;
+    }
+    .pr-topic-tab:first-child { border-right:1px solid #e5e7eb; }
+    .pr-topic-tab.active { background:#0d9488; color:#fff; }
+    .pr-topic-tab:hover:not(.active) { background:#f3f4f6; }
 
     .rb-spinner {
         display:inline-block; width:14px; height:14px;
@@ -464,6 +600,317 @@
             document.getElementById('eventWrap').style.display = 'none';
         }
     }
+
+    // ═══════════════════════════════════════════════
+    //              ПРАКТИКА — JavaScript
+    // ═══════════════════════════════════════════════
+
+    let prColorMap = {};
+    let prColorIdx = 0;
+    let prIsLoading = false;
+    let prLastJson = '';
+    let prPollingInterval = null;
+
+    function prGetColor(id) {
+        if (!prColorMap[id]) {
+            prColorMap[id] = CONSUMER_CLASSES[prColorIdx % CONSUMER_CLASSES.length];
+            prColorIdx++;
+        }
+        return prColorMap[id];
+    }
+
+    function prSetLoading(btnId, loading, text) {
+        const btn = document.getElementById(btnId);
+        if (loading) {
+            btn.disabled = true;
+            btn.innerHTML = '<span class="rb-spinner"></span>' + (text || 'Ожидание...');
+            prIsLoading = true;
+        } else {
+            btn.disabled = false;
+            btn.textContent = btn.dataset.label || text;
+            prIsLoading = false;
+        }
+    }
+
+    let prTopicMode = 'existing'; // 'existing' or 'new'
+
+    function prSwitchTopicTab(mode) {
+        prTopicMode = mode;
+        document.getElementById('prTabExisting').classList.toggle('active', mode === 'existing');
+        document.getElementById('prTabNew').classList.toggle('active', mode === 'new');
+        document.getElementById('prTopicExisting').style.display = mode === 'existing' ? '' : 'none';
+        document.getElementById('prTopicNew').style.display = mode === 'new' ? '' : 'none';
+    }
+
+    async function prFetchTopics() {
+        const sel = document.getElementById('prTopicSelect');
+        sel.innerHTML = '<option value="" disabled selected>Загрузка...</option>';
+        try {
+            const resp = await fetch('/rebalancing/practice/topics');
+            const topics = await resp.json();
+            const sorted = [...topics].sort();
+            if (sorted.length === 0) {
+                sel.innerHTML = '<option value="" disabled selected>Нет топиков</option>';
+            } else {
+                sel.innerHTML = sorted.map(t =>
+                    '<option value="' + t + '">' + t + '</option>'
+                ).join('');
+            }
+        } catch(e) {
+            sel.innerHTML = '<option value="" disabled selected>Ошибка загрузки</option>';
+        }
+    }
+
+    function prGetSelectedTopic() {
+        if (prTopicMode === 'existing') {
+            return document.getElementById('prTopicSelect').value || '';
+        }
+        return document.getElementById('prTopicNameInput').value.trim();
+    }
+
+    async function prCreateSession() {
+        const topic = prGetSelectedTopic();
+        const group = document.getElementById('prGroupId').value.trim();
+        const parts = parseInt(document.getElementById('prPartitions').value) || 4;
+
+        if (!topic || !group) { alert('Заполните имя топика и группы'); return; }
+
+        const btn = document.getElementById('prBtnCreate');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="rb-spinner"></span>Создание...';
+
+        try {
+            const resp = await fetch('/rebalancing/practice/create-session', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: `topicName=${encodeURIComponent(topic)}&groupId=${encodeURIComponent(group)}&partitions=${parts}`
+            });
+            const data = await resp.json();
+            if (data.error) { alert(data.error); return; }
+
+            // Показать панель управления
+            document.getElementById('prControls').style.display = '';
+            document.getElementById('prBtnReset').disabled = false;
+
+            // Сохраняем labels
+            document.getElementById('prBtnAdd').dataset.label = '+ Consumer';
+            document.getElementById('prBtnRemove').dataset.label = '- Consumer';
+            document.getElementById('prBtnPartition').dataset.label = '+ Партиция';
+
+            prRender(data);
+
+            // Запускаем polling
+            if (prPollingInterval) clearInterval(prPollingInterval);
+            prPollingInterval = setInterval(prRefresh, 3000);
+
+        } catch(e) { console.error(e); alert('Ошибка создания сессии'); }
+        finally {
+            btn.disabled = false;
+            btn.textContent = 'Создать сессию';
+        }
+    }
+
+    async function prAddConsumer() {
+        prSetLoading('prBtnAdd', true, 'Rebalance...');
+        try {
+            const resp = await fetch('/rebalancing/practice/add', {method:'POST'});
+            const data = await resp.json();
+            prLastJson = '';
+            prRender(data);
+        } catch(e) { console.error(e); }
+        finally { prSetLoading('prBtnAdd', false, '+ Consumer'); }
+    }
+
+    async function prRemoveConsumer() {
+        prSetLoading('prBtnRemove', true, 'Rebalance...');
+        try {
+            const resp = await fetch('/rebalancing/practice/remove', {method:'POST'});
+            const data = await resp.json();
+            prLastJson = '';
+            prRender(data);
+        } catch(e) { console.error(e); }
+        finally { prSetLoading('prBtnRemove', false, '- Consumer'); }
+    }
+
+    async function prAddPartition() {
+        prSetLoading('prBtnPartition', true, 'Добавление...');
+        try {
+            const resp = await fetch('/rebalancing/practice/add-partition', {method:'POST'});
+            const data = await resp.json();
+            prLastJson = '';
+            prRender(data);
+        } catch(e) { console.error(e); }
+        finally { prSetLoading('prBtnPartition', false, '+ Партиция'); }
+    }
+
+    async function prReset() {
+        prColorMap = {};
+        prColorIdx = 0;
+        prLastJson = '';
+        if (prPollingInterval) { clearInterval(prPollingInterval); prPollingInterval = null; }
+        try {
+            const resp = await fetch('/rebalancing/practice/reset', {method:'POST'});
+            const data = await resp.json();
+            prRender(data);
+        } catch(e) { console.error(e); }
+        document.getElementById('prControls').style.display = 'none';
+        document.getElementById('prBtnReset').disabled = true;
+    }
+
+    async function prRefresh() {
+        if (prIsLoading) return;
+        try {
+            const resp = await fetch('/rebalancing/practice/status');
+            const data = await resp.json();
+            const json = JSON.stringify(data);
+            if (json === prLastJson) return;
+            prLastJson = json;
+            prRender(data);
+        } catch(e) { console.error(e); }
+    }
+
+    function prRender(data) {
+        if (!data.sessionActive && !data.events?.length) return;
+
+        const assignments = data.assignments || {};
+        const allConsumers = data.allConsumers || [];
+        const events = data.events || [];
+        const totalP = data.totalPartitions || 0;
+        const maxP = data.maxPartitions || 20;
+
+        // Инфо-панель
+        document.getElementById('prInfoTopic').textContent = data.topicName || '—';
+        document.getElementById('prInfoGroup').textContent = data.groupId || '—';
+        document.getElementById('prInfoPartitions').textContent = totalP;
+        document.getElementById('prInfoMaxP').textContent = maxP;
+        document.getElementById('prInfoConsumers').textContent = allConsumers.length;
+
+        // Кнопка партиции
+        const btnP = document.getElementById('prBtnPartition');
+        if (totalP >= maxP) {
+            btnP.disabled = true;
+            btnP.textContent = 'Лимит';
+        } else if (!prIsLoading) {
+            btnP.disabled = false;
+            btnP.textContent = '+ Партиция';
+        }
+
+        // Partition → consumer
+        const partMap = {};
+        for (const [cId, parts] of Object.entries(assignments)) {
+            for (const p of parts) partMap[p] = cId;
+        }
+
+        // === Партиции ===
+        const pRow = document.getElementById('prPartitionsRow');
+        pRow.innerHTML = '';
+        for (let i = 0; i < totalP; i++) {
+            const owner = partMap[i];
+            const cls = owner ? prGetColor(owner) : '';
+            const div = document.createElement('div');
+            div.className = 'rb-partition ' + cls;
+            if (owner) {
+                div.style.borderColor = 'var(--rb-color)';
+                div.style.background = 'var(--rb-bg)';
+                div.style.color = 'var(--rb-text)';
+            } else {
+                div.style.borderColor = '#d1d5db';
+                div.style.background = '#f9fafb';
+                div.style.color = '#9ca3af';
+            }
+            div.innerHTML = '<span>P' + i + '</span>' +
+                '<span class="rb-partition-num">' + (owner || 'свободна') + '</span>';
+            pRow.appendChild(div);
+        }
+
+        // === Consumer'ы ===
+        const cRow = document.getElementById('prConsumersRow');
+        const cLabel = document.getElementById('prConsumersLabel');
+        const empty = document.getElementById('prEmptyState');
+
+        if (allConsumers.length > 0) {
+            cLabel.style.display = '';
+            empty.style.display = 'none';
+            cRow.innerHTML = '';
+
+            const sorted = [...allConsumers].sort((a,b) => {
+                const na = parseInt(a.split('-')[1]) || 0;
+                const nb = parseInt(b.split('-')[1]) || 0;
+                return na - nb;
+            });
+
+            for (const cId of sorted) {
+                const cls = prGetColor(cId);
+                const parts = assignments[cId] || [];
+                const div = document.createElement('div');
+                div.className = 'rb-consumer-card ' + cls;
+                div.style.borderColor = 'var(--rb-color)';
+                div.style.background = 'var(--rb-bg)';
+
+                let inner = '<div class="rb-consumer-name" style="color:var(--rb-text);">';
+                inner += '<span class="rb-consumer-dot" style="background:var(--rb-color);"></span>';
+                inner += cId + '</div>';
+
+                if (parts.length > 0) {
+                    inner += '<div class="rb-consumer-partitions">';
+                    [...parts].sort((a,b) => a-b).forEach(p => {
+                        inner += '<span class="rb-consumer-p" style="background:var(--rb-color);color:#fff;">P' + p + '</span>';
+                    });
+                    inner += '</div>';
+                } else {
+                    inner += '<div class="rb-consumer-idle">Нет партиций (idle)</div>';
+                }
+
+                div.innerHTML = inner;
+                cRow.appendChild(div);
+            }
+        } else {
+            cLabel.style.display = 'none';
+            cRow.innerHTML = '';
+            empty.style.display = '';
+        }
+
+        // === Лог событий ===
+        document.getElementById('prEventBadge').textContent = events.length;
+        if (events.length > 0) {
+            document.getElementById('prEventEmpty').style.display = 'none';
+            document.getElementById('prEventWrap').style.display = '';
+            const logDiv = document.getElementById('prEventLog');
+            logDiv.innerHTML = '';
+            events.forEach(ev => {
+                const typeLower = ev.type.toLowerCase();
+                const div = document.createElement('div');
+                div.className = 'rb-event rb-ev-' + typeLower;
+                div.innerHTML =
+                    '<span class="rb-event-time">' + ev.time + '</span>' +
+                    '<span class="rb-event-badge rb-badge-' + typeLower + '">' + ev.type + '</span>' +
+                    '<span><strong>' + ev.consumer + '</strong> — ' + ev.message + '</span>';
+                logDiv.appendChild(div);
+            });
+        } else {
+            document.getElementById('prEventEmpty').style.display = '';
+            document.getElementById('prEventWrap').style.display = 'none';
+        }
+    }
+
+    // Загружаем список топиков и статус практики при загрузке страницы
+    document.addEventListener('DOMContentLoaded', async () => {
+        prFetchTopics();
+        try {
+            const resp = await fetch('/rebalancing/practice/status');
+            const data = await resp.json();
+            if (data.sessionActive) {
+                document.getElementById('prControls').style.display = '';
+                document.getElementById('prBtnReset').disabled = false;
+                document.getElementById('prBtnAdd').dataset.label = '+ Consumer';
+                document.getElementById('prBtnRemove').dataset.label = '- Consumer';
+                document.getElementById('prBtnPartition').dataset.label = '+ Партиция';
+                document.getElementById('prGroupId').value = data.groupId || '';
+                prRender(data);
+                prPollingInterval = setInterval(prRefresh, 3000);
+            }
+        } catch(e) { console.error(e); }
+    });
 </script>
 </body>
 </html>
