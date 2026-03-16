@@ -16,6 +16,7 @@ import java.util.List;
 public class MessageHistoryService {
 
     private final KafkaMessageRepository kafkaMessageRepository;
+    private final LocalDateTime appStartTime = LocalDateTime.now();
 
     public void saveSentMessage(String topic, String key, String value, Integer partition, String headers) {
         log.info("Saving sent message to topic: {}", topic);
@@ -65,5 +66,10 @@ public class MessageHistoryService {
     public List<KafkaMessageEntity> getMessagesByDirection(String direction) {
         log.info("Fetching messages with direction: {}", direction);
         return kafkaMessageRepository.findByDirectionOrderByTimestampDesc(direction);
+    }
+
+    public List<KafkaMessageEntity> getMessagesReceivedSinceStart() {
+        log.info("Fetching messages received since app start: {}", appStartTime);
+        return kafkaMessageRepository.findByDirectionAndTimestampAfterOrderByTimestampDesc("RECEIVED", appStartTime);
     }
 }

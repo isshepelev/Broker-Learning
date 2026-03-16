@@ -29,6 +29,6 @@ public class ConsumerController {
     @GetMapping("/messages")
     @ResponseBody
     public List<KafkaMessageEntity> getRecentMessages() {
-        return historyService.getMessagesByDirection("RECEIVED");
+        return historyService.getMessagesReceivedSinceStart();
     }
 }

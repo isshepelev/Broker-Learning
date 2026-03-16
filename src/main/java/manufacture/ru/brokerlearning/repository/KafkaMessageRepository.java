@@ -22,6 +22,8 @@ public interface KafkaMessageRepository extends JpaRepository<KafkaMessageEntity
 
     List<KafkaMessageEntity> findByTimestampAfterOrderByTimestampAsc(LocalDateTime after);
 
+    List<KafkaMessageEntity> findByDirectionAndTimestampAfterOrderByTimestampDesc(String direction, LocalDateTime after);
+
     @Query("SELECT m.topic, COUNT(m) FROM KafkaMessageEntity m WHERE m.direction = :direction GROUP BY m.topic")
     List<Object[]> countByTopicAndDirection(@Param("direction") String direction);
 }
