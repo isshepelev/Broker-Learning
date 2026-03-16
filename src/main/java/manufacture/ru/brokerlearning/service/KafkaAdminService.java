@@ -9,6 +9,8 @@ import org.apache.kafka.clients.admin.TopicDescription;
 import org.apache.kafka.common.config.ConfigResource;
 import org.springframework.stereotype.Service;
 
+import manufacture.ru.brokerlearning.config.InternalKafkaRegistry;
+
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
@@ -24,8 +26,10 @@ public class KafkaAdminService {
 
     public Set<String> listTopics() throws ExecutionException, InterruptedException {
         log.info("Listing all Kafka topics");
-        Set<String> topics = adminClient.listTopics().names().get();
-        log.debug("Found {} topics", topics.size());
+        Set<String> topics = adminClient.listTopics().names().get().stream()
+                .filter(InternalKafkaRegistry::isUserTopic)
+                .collect(Collectors.toSet());
+        log.debug("Found {} user topics", topics.size());
         return topics;
     }
 
@@ -59,6 +63,9 @@ public class KafkaAdminService {
     }
 
     public void deleteTopic(String name) throws ExecutionException, InterruptedException {
+        if (InternalKafkaRegistry.isInternalTopic(name)) {
+            throw new IllegalArgumentException("Нельзя удалить системный топик: " + name);
+        }
         log.info("Deleting topic: {}", name);
         adminClient.deleteTopics(Collections.singletonList(name)).all().get();
         log.info("Topic '{}' deleted successfully", name);

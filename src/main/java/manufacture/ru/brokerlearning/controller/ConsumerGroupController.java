@@ -9,6 +9,8 @@ import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 
+import manufacture.ru.brokerlearning.config.InternalKafkaRegistry;
+
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -31,7 +33,10 @@ public class ConsumerGroupController {
     public List<Map<String, Object>> listGroups() {
         try {
             var listings = adminClient.listConsumerGroups().all().get();
-            var groupIds = listings.stream().map(ConsumerGroupListing::groupId).collect(Collectors.toList());
+            var groupIds = listings.stream()
+                    .map(ConsumerGroupListing::groupId)
+                    .filter(InternalKafkaRegistry::isUserGroup)
+                    .collect(Collectors.toList());
 
             if (groupIds.isEmpty()) return Collections.emptyList();
 

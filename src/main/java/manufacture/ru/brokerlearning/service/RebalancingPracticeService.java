@@ -1,6 +1,7 @@
 package manufacture.ru.brokerlearning.service;
 
 import lombok.extern.slf4j.Slf4j;
+import manufacture.ru.brokerlearning.config.InternalKafkaRegistry;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.NewPartitions;
 import org.apache.kafka.clients.admin.NewTopic;
@@ -234,7 +235,12 @@ public class RebalancingPracticeService {
      */
     public Set<String> listTopics() {
         try (AdminClient admin = AdminClient.create(adminProps())) {
-            return admin.listTopics().names().get();
+            Set<String> all = admin.listTopics().names().get();
+            Set<String> filtered = new java.util.LinkedHashSet<>();
+            for (String t : all) {
+                if (InternalKafkaRegistry.isUserTopic(t)) filtered.add(t);
+            }
+            return filtered;
         } catch (Exception e) {
             log.error("Practice: list topics error: {}", e.getMessage());
             return Set.of();

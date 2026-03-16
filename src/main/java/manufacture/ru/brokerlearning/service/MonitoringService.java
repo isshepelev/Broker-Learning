@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import manufacture.ru.brokerlearning.model.KafkaMessageEntity;
 import manufacture.ru.brokerlearning.repository.KafkaMessageRepository;
+import manufacture.ru.brokerlearning.config.InternalKafkaRegistry;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.ConsumerGroupListing;
 import org.apache.kafka.clients.admin.ListOffsetsResult;
@@ -92,6 +93,7 @@ public class MonitoringService {
 
             for (ConsumerGroupListing group : groups) {
                 String groupId = group.groupId();
+                if (InternalKafkaRegistry.isInternalGroup(groupId)) continue;
                 try {
                     Map<TopicPartition, OffsetAndMetadata> offsets =
                             adminClient.listConsumerGroupOffsets(groupId)
@@ -146,6 +148,7 @@ public class MonitoringService {
             Set<String> topics = adminClient.listTopics().names().get();
 
             for (String topic : topics) {
+                if (InternalKafkaRegistry.isInternalTopic(topic)) continue;
                 try {
                     var desc = adminClient.describeTopics(Collections.singletonList(topic))
                             .topicNameValues().get(topic).get();
@@ -190,13 +193,17 @@ public class MonitoringService {
         stats.put("last5Minutes", messageRepository.countByTimestampAfter(LocalDateTime.now().minusMinutes(5)));
 
         try {
-            stats.put("topicsCount", adminClient.listTopics().names().get().size());
+            long userTopics = adminClient.listTopics().names().get().stream()
+                    .filter(InternalKafkaRegistry::isUserTopic).count();
+            stats.put("topicsCount", userTopics);
         } catch (Exception e) {
             stats.put("topicsCount", 0);
         }
 
         try {
-            stats.put("consumerGroupsCount", adminClient.listConsumerGroups().all().get().size());
+            long userGroups = adminClient.listConsumerGroups().all().get().stream()
+                    .filter(g -> InternalKafkaRegistry.isUserGroup(g.groupId())).count();
+            stats.put("consumerGroupsCount", userGroups);
         } catch (Exception e) {
             stats.put("consumerGroupsCount", 0);
         }
