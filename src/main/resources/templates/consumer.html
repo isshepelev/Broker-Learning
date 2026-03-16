@@ -8,33 +8,90 @@
 <div class="container container-main">
     <div class="page-header">
         <h2>Consumer</h2>
-        <p>Здесь отображаются все полученные сообщения из Kafka. Отправьте сообщение через Producer — оно автоматически появится в списке ниже.</p>
+        <p>Создавайте consumer'ов для конкретных topic'ов, просматривайте сообщения по каждому consumer'у и партиции.</p>
     </div>
 
     <div class="theory-section">
-        <h5>Как работает Consumer?</h5>
-        <p>Приложение автоматически подписано на <strong>все topic-и</strong> в кластере.
-            Когда producer отправляет сообщение в любой topic, consumer получает его и сохраняет в базу данных.
-            Список ниже обновляется каждые 2 секунды.</p>
+        <h5>Как это работает?</h5>
+        <p>Вы можете создать consumer'а, привязав его к определённому topic'у и consumer group.
+            Каждый consumer будет получать сообщения в реальном времени. Вы можете фильтровать
+            сообщения по конкретному consumer'у и партиции.</p>
     </div>
 
-    <div class="card">
+    <!-- Create consumer -->
+    <div class="card mb-4">
+        <div class="card-header bg-white">
+            <h5 class="mb-0" style="font-size: 1rem;">Создать Consumer</h5>
+        </div>
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label">Имя consumer'а</label>
+                    <input type="text" class="form-control" id="consumerName" placeholder="my-consumer">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Topic</label>
+                    <select class="form-select" id="topicSelect">
+                        <option value="">Загрузка...</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Group ID <small class="text-muted">(опционально)</small></label>
+                    <input type="text" class="form-control" id="groupId" placeholder="auto">
+                </div>
+                <div class="col-md-3">
+                    <button class="btn btn-primary-custom w-100" onclick="createConsumer()">Создать и запустить</button>
+                </div>
+            </div>
+            <div id="createResult" class="mt-2" style="display:none;"></div>
+        </div>
+    </div>
+
+    <!-- Active consumers -->
+    <div class="card mb-4">
         <div class="card-header bg-white d-flex justify-content-between align-items-center">
-            <h5 class="mb-0" style="font-size: 1rem;">Полученные сообщения</h5>
-            <div class="d-flex align-items-center gap-3">
-                <small class="text-muted" id="msgCount"></small>
-                <small class="text-muted" id="lastUpdate"></small>
-                <button class="btn btn-sm btn-outline-custom" onclick="loadMessages()">Обновить</button>
+            <h5 class="mb-0" style="font-size: 1rem;">Активные Consumer'ы</h5>
+            <div class="d-flex gap-2">
+                <button class="btn btn-sm btn-outline-custom" onclick="refreshConsumers()">Обновить</button>
+                <button class="btn btn-sm btn-outline-danger" onclick="stopAll()">Остановить все</button>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            <div id="noConsumers" class="p-4 text-center">
+                <p class="text-muted mb-0">Нет активных consumer'ов. Создайте одного выше.</p>
+            </div>
+            <div id="consumersGrid" class="p-3" style="display:none;">
+                <div class="row g-3" id="consumersRow"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Messages panel -->
+    <div class="card">
+        <div class="card-header bg-white">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <h5 class="mb-0" style="font-size: 1rem;">Сообщения</h5>
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <select class="form-select form-select-sm" id="filterConsumer" style="width: auto; min-width: 160px;" onchange="onFilterChange()">
+                        <option value="__all__">Все consumer'ы</option>
+                    </select>
+                    <select class="form-select form-select-sm" id="filterPartition" style="width: auto; min-width: 130px;" onchange="onFilterChange()">
+                        <option value="__all__">Все партиции</option>
+                    </select>
+                    <small class="text-muted" id="msgCount"></small>
+                    <small class="text-muted" id="lastUpdate"></small>
+                </div>
             </div>
         </div>
         <div class="card-body p-0">
             <div id="emptyState" class="p-4 text-center">
-                <p class="text-muted mb-0">Загрузка...</p>
+                <p class="text-muted mb-0">Сообщений пока нет. Создайте consumer'а и отправьте сообщения через Producer.</p>
             </div>
             <div id="tableWrap" class="table-responsive" style="max-height: 600px; overflow-y: auto; display: none;">
                 <table class="table table-hover table-sm mb-0">
                     <thead style="position: sticky; top: 0;">
                     <tr>
+                        <th>Consumer</th>
                         <th>Topic</th>
                         <th>Key</th>
                         <th>Value</th>
@@ -48,59 +105,402 @@
             </div>
         </div>
     </div>
+
+    <!-- Built-in consumer messages (from SimpleConsumer) -->
+    <div class="card mt-4">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0" style="font-size: 1rem;">Встроенный Consumer <small class="text-muted">(main-consumer-group)</small></h5>
+            <div class="d-flex align-items-center gap-3">
+                <small class="text-muted" id="builtinCount"></small>
+                <button class="btn btn-sm btn-outline-custom" onclick="loadBuiltinMessages()">Обновить</button>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            <div id="builtinEmpty" class="p-4 text-center">
+                <p class="text-muted mb-0">Загрузка...</p>
+            </div>
+            <div id="builtinTableWrap" class="table-responsive" style="max-height: 400px; overflow-y: auto; display: none;">
+                <table class="table table-hover table-sm mb-0">
+                    <thead style="position: sticky; top: 0;">
+                    <tr>
+                        <th>Topic</th>
+                        <th>Key</th>
+                        <th>Value</th>
+                        <th>Partition</th>
+                        <th>Offset</th>
+                        <th>Время</th>
+                    </tr>
+                    </thead>
+                    <tbody id="builtinBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
 </div>
 
 <div th:replace="~{fragments/layout :: scripts}"></div>
 
-<script>
-    let previousCount = 0;
+<style>
+    .consumer-card {
+        border: 1.5px solid var(--c-border);
+        border-radius: var(--radius-sm);
+        padding: 1rem;
+        cursor: pointer;
+        transition: all var(--transition);
+        position: relative;
+    }
+    .consumer-card:hover {
+        border-color: var(--c-primary);
+        box-shadow: var(--shadow-md);
+    }
+    .consumer-card.selected {
+        border-color: var(--c-primary);
+        background: var(--c-primary-soft);
+        box-shadow: 0 0 0 3px rgba(13,148,136,.12);
+    }
+    .consumer-card .consumer-name {
+        font-weight: 700;
+        font-size: .95rem;
+        color: var(--c-text);
+    }
+    .consumer-card .consumer-meta {
+        font-size: .8rem;
+        color: var(--c-text-muted);
+        margin-top: .25rem;
+    }
+    .consumer-card .partitions-list {
+        margin-top: .5rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+    .partition-badge {
+        display: inline-block;
+        background: var(--c-info-light);
+        color: var(--c-info);
+        font-weight: 600;
+        font-size: .72rem;
+        padding: .2em .5em;
+        border-radius: 4px;
+    }
+    .consumer-card .stop-btn {
+        position: absolute;
+        top: .5rem;
+        right: .5rem;
+    }
+    .msg-highlight {
+        animation: rowHighlight .6s ease;
+    }
+    @keyframes rowHighlight {
+        from { background-color: var(--c-primary-light); }
+        to { background-color: transparent; }
+    }
+</style>
 
-    async function loadMessages() {
+<script>
+    let selectedConsumer = '__all__';
+    let selectedPartition = '__all__';
+    let previousHash = '';
+    let builtinPrevCount = 0;
+
+    // Load topics
+    async function loadTopics() {
         try {
-            const resp = await fetch('/consumer/messages');
+            const resp = await fetch('/consumer/topics');
+            const topics = await resp.json();
+            const select = document.getElementById('topicSelect');
+            select.innerHTML = '<option value="">Выберите topic</option>';
+            const sorted = [...topics].sort();
+            sorted.forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t;
+                opt.textContent = t;
+                select.appendChild(opt);
+            });
+        } catch (err) {
+            console.error('Failed to load topics:', err);
+        }
+    }
+
+    // Create consumer
+    async function createConsumer() {
+        const name = document.getElementById('consumerName').value.trim();
+        const topic = document.getElementById('topicSelect').value;
+        const groupId = document.getElementById('groupId').value.trim();
+        const resultDiv = document.getElementById('createResult');
+
+        if (!topic) {
+            resultDiv.style.display = '';
+            resultDiv.innerHTML = '<div class="alert alert-warning py-2 mb-0">Выберите topic</div>';
+            return;
+        }
+
+        try {
+            const resp = await fetch('/consumer/create', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name, topic, groupId})
+            });
+            const data = await resp.json();
+            if (data.success) {
+                resultDiv.style.display = '';
+                resultDiv.innerHTML = '<div class="alert alert-success py-2 mb-0">Consumer создан: ' + data.consumer.name + '</div>';
+                document.getElementById('consumerName').value = '';
+                document.getElementById('groupId').value = '';
+                refreshConsumers();
+                setTimeout(() => { resultDiv.style.display = 'none'; }, 3000);
+            } else {
+                resultDiv.style.display = '';
+                resultDiv.innerHTML = '<div class="alert alert-danger py-2 mb-0">' + data.error + '</div>';
+            }
+        } catch (err) {
+            resultDiv.style.display = '';
+            resultDiv.innerHTML = '<div class="alert alert-danger py-2 mb-0">Ошибка: ' + err.message + '</div>';
+        }
+    }
+
+    // Refresh consumers list
+    async function refreshConsumers() {
+        try {
+            const resp = await fetch('/consumer/list');
+            const consumers = await resp.json();
+
+            const filterSelect = document.getElementById('filterConsumer');
+            const currentVal = filterSelect.value;
+            filterSelect.innerHTML = '<option value="__all__">Все consumer\'ы</option>';
+            consumers.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c.name;
+                opt.textContent = c.name + ' (' + c.topic + ')';
+                filterSelect.appendChild(opt);
+            });
+            filterSelect.value = consumers.some(c => c.name === currentVal) ? currentVal : '__all__';
+
+            if (consumers.length === 0) {
+                document.getElementById('noConsumers').style.display = '';
+                document.getElementById('consumersGrid').style.display = 'none';
+                return;
+            }
+
+            document.getElementById('noConsumers').style.display = 'none';
+            document.getElementById('consumersGrid').style.display = '';
+
+            const row = document.getElementById('consumersRow');
+            row.innerHTML = '';
+            consumers.forEach(c => {
+                const col = document.createElement('div');
+                col.className = 'col-md-4';
+                const isSelected = selectedConsumer === c.name;
+                const partitions = (c.assignedPartitions || []).map(p =>
+                    '<span class="partition-badge">P' + p + '</span>'
+                ).join('');
+
+                col.innerHTML =
+                    '<div class="consumer-card' + (isSelected ? ' selected' : '') + '" onclick="selectConsumer(\'' + c.name + '\')">' +
+                    '<button class="btn btn-sm btn-outline-danger stop-btn" onclick="event.stopPropagation(); stopConsumer(\'' + c.name + '\')" title="Остановить">&#10005;</button>' +
+                    '<div class="consumer-name">' + c.name + '</div>' +
+                    '<div class="consumer-meta">' +
+                    '<span class="badge badge-topic">' + c.topic + '</span> ' +
+                    '<span class="text-muted">group: ' + c.groupId + '</span>' +
+                    '</div>' +
+                    '<div class="consumer-meta">Сообщений: <strong>' + c.messageCount + '</strong></div>' +
+                    '<div class="partitions-list">' + (partitions || '<span class="text-muted" style="font-size:.75rem;">ожидание назначения...</span>') + '</div>' +
+                    '</div>';
+                row.appendChild(col);
+            });
+        } catch (err) {
+            console.error('Failed to refresh consumers:', err);
+        }
+    }
+
+    function selectConsumer(name) {
+        if (selectedConsumer === name) {
+            selectedConsumer = '__all__';
+        } else {
+            selectedConsumer = name;
+        }
+        document.getElementById('filterConsumer').value = selectedConsumer;
+        onFilterChange();
+        refreshConsumers();
+    }
+
+    async function stopConsumer(name) {
+        try {
+            await fetch('/consumer/stop', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name})
+            });
+            if (selectedConsumer === name) selectedConsumer = '__all__';
+            refreshConsumers();
+            loadDynamicMessages();
+        } catch (err) {
+            console.error('Failed to stop consumer:', err);
+        }
+    }
+
+    async function stopAll() {
+        try {
+            await fetch('/consumer/stop-all', {method: 'POST'});
+            selectedConsumer = '__all__';
+            refreshConsumers();
+            loadDynamicMessages();
+        } catch (err) {
+            console.error('Failed to stop all:', err);
+        }
+    }
+
+    async function onFilterChange() {
+        selectedConsumer = document.getElementById('filterConsumer').value;
+        selectedPartition = document.getElementById('filterPartition').value;
+
+        // Update partition filter options
+        if (selectedConsumer !== '__all__') {
+            try {
+                const resp = await fetch('/consumer/partitions?consumerName=' + encodeURIComponent(selectedConsumer));
+                const parts = await resp.json();
+                const partSelect = document.getElementById('filterPartition');
+                const curVal = partSelect.value;
+                partSelect.innerHTML = '<option value="__all__">Все партиции</option>';
+                parts.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p;
+                    opt.textContent = 'Партиция ' + p;
+                    partSelect.appendChild(opt);
+                });
+                if (parts.includes(parseInt(curVal))) {
+                    partSelect.value = curVal;
+                    selectedPartition = curVal;
+                } else {
+                    selectedPartition = '__all__';
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        } else {
+            document.getElementById('filterPartition').innerHTML = '<option value="__all__">Все партиции</option>';
+            selectedPartition = '__all__';
+        }
+
+        previousHash = '';
+        loadDynamicMessages();
+
+        // Highlight selected consumer card
+        document.querySelectorAll('.consumer-card').forEach(card => card.classList.remove('selected'));
+        if (selectedConsumer !== '__all__') {
+            refreshConsumers();
+        }
+    }
+
+    // Load dynamic consumer messages
+    async function loadDynamicMessages() {
+        try {
+            let url;
+            if (selectedConsumer === '__all__') {
+                url = '/consumer/dynamic-messages-all';
+            } else {
+                url = '/consumer/dynamic-messages?consumerName=' + encodeURIComponent(selectedConsumer);
+                if (selectedPartition !== '__all__') {
+                    url += '&partition=' + selectedPartition;
+                }
+            }
+
+            const resp = await fetch(url);
             const messages = await resp.json();
 
             document.getElementById('lastUpdate').textContent = 'Обновлено: ' + new Date().toLocaleTimeString();
             document.getElementById('msgCount').textContent = 'Сообщений: ' + messages.length;
 
+            const hash = messages.length + '-' + (messages.length > 0 ? messages[0].timestamp + messages[0].offset : '');
+
             if (messages.length === 0) {
                 document.getElementById('emptyState').style.display = '';
-                document.getElementById('emptyState').innerHTML = '<p class="text-muted mb-0">Сообщений пока нет. Отправьте что-нибудь через Producer.</p>';
                 document.getElementById('tableWrap').style.display = 'none';
+                previousHash = hash;
                 return;
             }
 
             document.getElementById('emptyState').style.display = 'none';
             document.getElementById('tableWrap').style.display = '';
 
+            if (hash === previousHash) return;
+            previousHash = hash;
+
             const tbody = document.getElementById('messagesBody');
-            const isNew = messages.length !== previousCount;
-            previousCount = messages.length;
+            tbody.innerHTML = '';
+            messages.forEach(function(msg) {
+                const tr = document.createElement('tr');
+                tr.className = 'msg-highlight';
+                const truncVal = msg.value && msg.value.length > 50
+                    ? msg.value.substring(0, 50) + '...' : (msg.value || '-');
+                const consumerLabel = msg.consumerName || selectedConsumer;
+                tr.innerHTML =
+                    '<td><span class="badge" style="background:#e0e7ff;color:#3730a3;font-weight:600;font-size:.76rem;">' + (consumerLabel !== '__all__' ? consumerLabel : '-') + '</span></td>' +
+                    '<td><span class="badge badge-topic">' + (msg.topic || '-') + '</span></td>' +
+                    '<td class="text-muted">' + (msg.key || '-') + '</td>' +
+                    '<td title="' + (msg.value || '').replace(/"/g, '&quot;') + '">' + truncVal + '</td>' +
+                    '<td><span class="partition-badge">P' + msg.partition + '</span></td>' +
+                    '<td>' + msg.offset + '</td>' +
+                    '<td class="text-muted">' + (msg.timestamp || '-') + '</td>';
+                tbody.appendChild(tr);
+            });
+        } catch (err) {
+            console.error('Failed to load dynamic messages:', err);
+        }
+    }
 
-            if (!isNew) return;
+    // Load built-in consumer messages
+    async function loadBuiltinMessages() {
+        try {
+            const resp = await fetch('/consumer/messages');
+            const messages = await resp.json();
 
+            document.getElementById('builtinCount').textContent = 'Сообщений: ' + messages.length;
+
+            if (messages.length === 0) {
+                document.getElementById('builtinEmpty').style.display = '';
+                document.getElementById('builtinEmpty').innerHTML = '<p class="text-muted mb-0">Нет сообщений от встроенного consumer\'а.</p>';
+                document.getElementById('builtinTableWrap').style.display = 'none';
+                return;
+            }
+
+            if (messages.length === builtinPrevCount) return;
+            builtinPrevCount = messages.length;
+
+            document.getElementById('builtinEmpty').style.display = 'none';
+            document.getElementById('builtinTableWrap').style.display = '';
+
+            const tbody = document.getElementById('builtinBody');
             tbody.innerHTML = '';
             messages.forEach(function(msg) {
                 const tr = document.createElement('tr');
                 const truncVal = msg.messageValue && msg.messageValue.length > 60
                     ? msg.messageValue.substring(0, 60) + '...' : (msg.messageValue || '-');
-                const time = msg.timestamp || '-';
                 tr.innerHTML =
                     '<td><span class="badge badge-topic">' + (msg.topic || '-') + '</span></td>' +
                     '<td class="text-muted">' + (msg.messageKey || '-') + '</td>' +
                     '<td title="' + (msg.messageValue || '').replace(/"/g, '&quot;') + '">' + truncVal + '</td>' +
                     '<td>' + (msg.partitionNum != null ? msg.partitionNum : '-') + '</td>' +
                     '<td>' + (msg.offsetNum != null ? msg.offsetNum : '-') + '</td>' +
-                    '<td class="text-muted">' + time + '</td>';
+                    '<td class="text-muted">' + (msg.timestamp || '-') + '</td>';
                 tbody.appendChild(tr);
             });
         } catch (err) {
-            console.error('Failed to load messages:', err);
+            console.error('Failed to load builtin messages:', err);
         }
     }
 
-    loadMessages();
-    setInterval(loadMessages, 2000);
+    // Init
+    loadTopics();
+    refreshConsumers();
+    loadDynamicMessages();
+    loadBuiltinMessages();
+
+    setInterval(() => {
+        refreshConsumers();
+        loadDynamicMessages();
+    }, 2000);
+    setInterval(loadBuiltinMessages, 5000);
 </script>
 </body>
 </html>
