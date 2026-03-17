@@ -174,7 +174,7 @@ public class DlqCompareService {
         DlqSession s = session(sid);
         List<Map<String, String>> list = "kafka".equals(source) ? s.kafkaDead : s.rabbitDead;
         if (index < 0 || index >= list.size()) return Map.of("error", "Неверный индекс");
-        saveSingleToDb(list.get(index), source);
+        saveSingleToDb(list.get(index), source, sid);
         list.remove(index);
         return Map.of("success", true);
     }
@@ -183,7 +183,7 @@ public class DlqCompareService {
         DlqSession s = session(sid);
         List<Map<String, String>> list = "kafka".equals(source) ? s.kafkaDead : s.rabbitDead;
         int count = list.size();
-        for (Map<String, String> dead : list) saveSingleToDb(dead, source);
+        for (Map<String, String> dead : list) saveSingleToDb(dead, source, sid);
         list.clear();
         return Map.of("success", true, "count", count);
     }
@@ -196,8 +196,8 @@ public class DlqCompareService {
         return Map.of("success", true);
     }
 
-    public List<Map<String, Object>> getSavedDeadMessages() {
-        List<KafkaMessageEntity> entities = messageRepository.findByDirectionOrderByTimestampDesc("DLQ");
+    public List<Map<String, Object>> getSavedDeadMessages(String ownerSid) {
+        List<KafkaMessageEntity> entities = messageRepository.findByDirectionAndOwnerSidOrderByTimestampDesc("DLQ", ownerSid);
         List<Map<String, Object>> result = new ArrayList<>();
         DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         for (KafkaMessageEntity e : entities) {
@@ -265,7 +265,7 @@ public class DlqCompareService {
         while (list.size() > 100) list.remove(list.size() - 1);
     }
 
-    private void saveSingleToDb(Map<String, String> dead, String source) {
+    private void saveSingleToDb(Map<String, String> dead, String source, String ownerSid) {
         KafkaMessageEntity entity = KafkaMessageEntity.builder()
                 .topic("kafka".equals(source) ? "Kafka DLT" : "RabbitMQ DLQ")
                 .messageKey("dead-letter")
@@ -273,6 +273,7 @@ public class DlqCompareService {
                 .direction("DLQ")
                 .headers("source=" + source + ", original_time=" + dead.getOrDefault("time", ""))
                 .groupId("kafka".equals(source) ? "dlq-compare-group" : "dlq-dead-queue")
+                .ownerSid(ownerSid)
                 .timestamp(LocalDateTime.now())
                 .build();
         messageRepository.save(entity);

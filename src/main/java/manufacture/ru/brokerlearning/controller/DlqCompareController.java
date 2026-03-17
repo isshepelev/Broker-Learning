@@ -107,7 +107,7 @@ public class DlqCompareController {
     @GetMapping("/saved")
     @ResponseBody
     public List<Map<String, Object>> savedMessages() {
-        return dlqCompareService.getSavedDeadMessages();
+        return dlqCompareService.getSavedDeadMessages(sessionHelper.currentSid());
     }
 
     @PostMapping("/delete-saved")

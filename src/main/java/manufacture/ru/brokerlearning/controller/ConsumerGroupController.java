@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.*;
 import manufacture.ru.brokerlearning.config.InternalKafkaRegistry;
 
 import java.util.*;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Controller
@@ -71,6 +72,11 @@ public class ConsumerGroupController {
     @GetMapping("/detail/{groupId}")
     @ResponseBody
     public Map<String, Object> groupDetail(@PathVariable String groupId) {
+        // Проверяем что группа принадлежит текущему пользователю
+        Set<String> userGroups = resourceRepository.groupNamesForUser(sessionHelper.currentSid());
+        if (!userGroups.contains(groupId)) {
+            return Map.of("error", "Consumer group не принадлежит вам");
+        }
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("groupId", groupId);
 

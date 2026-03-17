@@ -43,10 +43,8 @@ public class ScheduledProducerJob {
 
     @Scheduled(fixedRate = 3000)
     public void produceMetrics() {
-        for (var entry : sessions.entrySet()) {
-            String sid = entry.getKey();
-            ProducerState s = entry.getValue();
-            if (!s.running.get()) continue;
+        sessions.forEach((sid, s) -> {
+            if (!s.running.get()) return;
 
             int count = s.counter.incrementAndGet();
             double cpuValue = Math.round(Math.random() * 10000.0) / 100.0;
@@ -60,7 +58,7 @@ public class ScheduledProducerJob {
             String time = LocalDateTime.now().format(TIME_FMT);
             s.recentMessages.add(0, Map.of("time", time, "key", "metric-" + count, "value", "cpu_usage=" + cpuValue + "%", "seq", String.valueOf(count)));
             while (s.recentMessages.size() > 50) s.recentMessages.remove(s.recentMessages.size() - 1);
-        }
+        });
     }
 
     public void start(String sid) { session(sid).running.set(true); }
