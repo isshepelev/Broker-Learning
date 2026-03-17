@@ -57,7 +57,8 @@ public class ScheduledConsumerJob {
     public void stop(String sid) {
         ConsumerState s = session(sid);
         s.running.set(false);
-        if (s.consumer != null) s.consumer.wakeup();
+        KafkaConsumer<String, String> c = s.consumer;
+        if (c != null) c.wakeup();
         if (s.future != null) {
             try { s.future.get(10, TimeUnit.SECONDS); } catch (Exception ignored) {}
         }
@@ -94,14 +95,16 @@ public class ScheduledConsumerJob {
                         String time = LocalDateTime.now().format(TIME_FMT);
                         String shortValue = record.value() != null && record.value().length() > 60
                                 ? record.value().substring(0, 60) + "..." : (record.value() != null ? record.value() : "-");
-                        s.recentMessages.add(0, Map.of(
-                                "time", time,
-                                "key", record.key() != null ? record.key() : "-",
-                                "value", shortValue,
-                                "partition", String.valueOf(record.partition()),
-                                "offset", String.valueOf(record.offset())
-                        ));
-                        while (s.recentMessages.size() > 50) s.recentMessages.remove(s.recentMessages.size() - 1);
+                        synchronized (s.recentMessages) {
+                            s.recentMessages.add(0, Map.of(
+                                    "time", time,
+                                    "key", record.key() != null ? record.key() : "-",
+                                    "value", shortValue,
+                                    "partition", String.valueOf(record.partition()),
+                                    "offset", String.valueOf(record.offset())
+                            ));
+                            while (s.recentMessages.size() > 50) s.recentMessages.remove(s.recentMessages.size() - 1);
+                        }
                     }
                 } catch (WakeupException e) {
                     if (!s.running.get()) break;

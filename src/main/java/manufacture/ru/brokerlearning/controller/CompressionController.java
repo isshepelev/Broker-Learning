@@ -105,19 +105,22 @@ public class CompressionController {
         DefaultKafkaProducerFactory<String, String> factory = new DefaultKafkaProducerFactory<>(props);
         KafkaTemplate<String, String> template = new KafkaTemplate<>(factory);
 
-        // Отправляем
-        var futures = new ArrayList<java.util.concurrent.CompletableFuture<?>>();
-        long start = System.nanoTime();
-        for (int i = 0; i < count; i++) {
-            futures.add(template.send(topic, "k-" + i, message));
+        long elapsed;
+        try {
+            // Отправляем
+            var futures = new ArrayList<java.util.concurrent.CompletableFuture<?>>();
+            long start = System.nanoTime();
+            for (int i = 0; i < count; i++) {
+                futures.add(template.send(topic, "k-" + i, message));
+            }
+            for (var f : futures) {
+                f.get(30, TimeUnit.SECONDS);
+            }
+            elapsed = System.nanoTime() - start;
+        } finally {
+            factory.destroy();
         }
-        for (var f : futures) {
-            f.get(30, TimeUnit.SECONDS);
-        }
-        long elapsed = System.nanoTime() - start;
         double timeMs = elapsed / 1_000_000.0;
-
-        factory.destroy();
 
         // Читаем размер топика из брокера
         long topicSizeBytes = measureTopicSize(topic);

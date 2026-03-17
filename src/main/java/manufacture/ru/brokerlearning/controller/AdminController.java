@@ -89,13 +89,10 @@ public class AdminController {
 
         cleanupUserResources(sid, actions);
 
-        // Удаляем сообщения из БД
+        // Удаляем все сообщения пользователя из БД
         try {
-            List<manufacture.ru.brokerlearning.model.KafkaMessageEntity> msgs =
-                    messageRepository.findTop100ByOwnerSidOrderByTimestampDesc(sid);
-            // Удаляем все сообщения этого пользователя
-            messageRepository.deleteAll(msgs);
-            actions.add("Удалено сообщений из БД: " + msgs.size());
+            messageRepository.deleteByOwnerSid(sid);
+            actions.add("Сообщения пользователя удалены из БД");
         } catch (Exception e) {
             actions.add("Ошибка удаления сообщений: " + e.getMessage());
         }

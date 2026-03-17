@@ -45,8 +45,22 @@ public class PartitionVisualizationController {
         Map<String, Object> response = new HashMap<>();
         try {
             String topic = (String) request.get("topic");
+
+            // Проверяем ownership
+            Set<String> userTopics = sessionHelper.currentUserTopics();
+            if (topic == null || !userTopics.contains(topic)) {
+                response.put("success", false);
+                response.put("error", "Топик не принадлежит вам");
+                return response;
+            }
+
             @SuppressWarnings("unchecked")
             List<String> keys = (List<String>) request.get("keys");
+            if (keys == null || keys.isEmpty()) {
+                response.put("success", false);
+                response.put("error", "Ключи (keys) обязательны");
+                return response;
+            }
             int messagesPerKey = request.get("messagesPerKey") != null
                     ? ((Number) request.get("messagesPerKey")).intValue() : 1;
 

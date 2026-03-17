@@ -44,8 +44,10 @@ public class RabbitDemoService {
         // Embed sid in message for routing in listener
         rabbitTemplate.convertAndSend(RabbitConfig.DEMO_EXCHANGE, RabbitConfig.DEMO_ROUTING_KEY, sid + SID_SEPARATOR + message);
         s.sentCount.incrementAndGet();
-        s.sentMessages.add(0, Map.of("time", time, "value", message));
-        while (s.sentMessages.size() > 50) s.sentMessages.remove(s.sentMessages.size() - 1);
+        synchronized (s.sentMessages) {
+            s.sentMessages.add(0, Map.of("time", time, "value", message));
+            while (s.sentMessages.size() > 50) s.sentMessages.remove(s.sentMessages.size() - 1);
+        }
     }
 
     @RabbitListener(queues = RabbitConfig.DEMO_QUEUE)
@@ -55,8 +57,10 @@ public class RabbitDemoService {
         RabbitSession s = session(sid);
         String time = LocalDateTime.now().format(FMT);
         s.receivedCount.incrementAndGet();
-        s.receivedMessages.add(0, Map.of("time", time, "value", message));
-        while (s.receivedMessages.size() > 50) s.receivedMessages.remove(s.receivedMessages.size() - 1);
+        synchronized (s.receivedMessages) {
+            s.receivedMessages.add(0, Map.of("time", time, "value", message));
+            while (s.receivedMessages.size() > 50) s.receivedMessages.remove(s.receivedMessages.size() - 1);
+        }
     }
 
     public List<Map<String, String>> getSentMessages(String sid) { return session(sid).sentMessages; }

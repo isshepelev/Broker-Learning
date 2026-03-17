@@ -37,7 +37,7 @@ public class ResetController {
         List<String> actions = new ArrayList<>();
 
         try {
-            dynamicConsumerService.stopAll();
+            dynamicConsumerService.stopAllForUser(sid);
             actions.add("Динамические consumer-ы остановлены");
         } catch (Exception e) {
             actions.add("Ошибка остановки consumer-ов: " + e.getMessage());

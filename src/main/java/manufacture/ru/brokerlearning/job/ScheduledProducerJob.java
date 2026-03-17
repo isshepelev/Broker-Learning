@@ -43,10 +43,8 @@ public class ScheduledProducerJob {
 
     @Scheduled(fixedRate = 3000)
     public void produceMetrics() {
-        for (var entry : sessions.entrySet()) {
-            String sid = entry.getKey();
-            ProducerState s = entry.getValue();
-            if (!s.running.get()) continue;
+        sessions.forEach((sid, s) -> {
+            if (!s.running.get()) return;
 
             int count = s.counter.incrementAndGet();
             double cpuValue = Math.round(Math.random() * 10000.0) / 100.0;
@@ -58,9 +56,11 @@ public class ScheduledProducerJob {
             messageHistoryService.saveSentMessage(topic, "metric-" + count, metric, null, null, sid);
 
             String time = LocalDateTime.now().format(TIME_FMT);
-            s.recentMessages.add(0, Map.of("time", time, "key", "metric-" + count, "value", "cpu_usage=" + cpuValue + "%", "seq", String.valueOf(count)));
-            while (s.recentMessages.size() > 50) s.recentMessages.remove(s.recentMessages.size() - 1);
-        }
+            synchronized (s.recentMessages) {
+                s.recentMessages.add(0, Map.of("time", time, "key", "metric-" + count, "value", "cpu_usage=" + cpuValue + "%", "seq", String.valueOf(count)));
+                while (s.recentMessages.size() > 50) s.recentMessages.remove(s.recentMessages.size() - 1);
+            }
+        });
     }
 
     public void start(String sid) { session(sid).running.set(true); }
@@ -68,5 +68,5 @@ public class ScheduledProducerJob {
     public boolean isRunning(String sid) { return session(sid).running.get(); }
     public int getCounter(String sid) { return session(sid).counter.get(); }
     public List<Map<String, String>> getRecentMessages(String sid) { return new ArrayList<>(session(sid).recentMessages); }
-    public void cleanup(String sid) { sessions.remove(sid); }
+    public void cleanup(String sid) { stop(sid); sessions.remove(sid); }
 }

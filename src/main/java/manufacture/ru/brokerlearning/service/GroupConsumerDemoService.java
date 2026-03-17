@@ -205,8 +205,10 @@ public class GroupConsumerDemoService {
             Map<String, Object> ci = new LinkedHashMap<>();
             ci.put("id", cId);
             ci.put("partitions", new TreeSet<>(h.assignedPartitions));
-            ci.put("messageCount", msgs.size());
-            ci.put("messages", msgs.size() > 50 ? msgs.subList(0, 50) : new ArrayList<>(msgs));
+            synchronized (msgs) {
+                ci.put("messageCount", msgs.size());
+                ci.put("messages", msgs.size() > 50 ? new ArrayList<>(msgs.subList(0, 50)) : new ArrayList<>(msgs));
+            }
             consumerInfos.add(ci);
         }
         status.put("consumers", consumerInfos);
@@ -299,8 +301,10 @@ public class GroupConsumerDemoService {
                             msg.put("offset", record.offset());
                             msg.put("time", LocalDateTime.now().format(FMT));
                             msg.put("consumer", consumerId);
-                            myMessages.add(0, msg);
-                            while (myMessages.size() > 200) myMessages.remove(myMessages.size() - 1);
+                            synchronized (myMessages) {
+                                myMessages.add(0, msg);
+                                while (myMessages.size() > 200) myMessages.remove(myMessages.size() - 1);
+                            }
                         }
                     }
                 } catch (WakeupException e) {

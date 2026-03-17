@@ -107,7 +107,7 @@ public class DlqCompareController {
     @GetMapping("/saved")
     @ResponseBody
     public List<Map<String, Object>> savedMessages() {
-        return dlqCompareService.getSavedDeadMessages();
+        return dlqCompareService.getSavedDeadMessages(sessionHelper.currentSid());
     }
 
     @PostMapping("/delete-saved")
@@ -115,7 +115,7 @@ public class DlqCompareController {
     public Map<String, Object> deleteSaved(@RequestBody Map<String, Object> request) {
         Long id = request.containsKey("id") ? ((Number) request.get("id")).longValue() : null;
         if (id == null) return Map.of("error", "No id");
-        return dlqCompareService.deleteSavedMessage(id);
+        return dlqCompareService.deleteSavedMessage(sessionHelper.currentSid(), id);
     }
 
     @PostMapping("/retry-saved")

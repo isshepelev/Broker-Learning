@@ -109,7 +109,18 @@ public class ConsumerController {
     @PostMapping("/stop")
     @ResponseBody
     public Map<String, Object> stopConsumer(@RequestBody Map<String, String> request) {
-        return dynamicConsumerService.stopConsumer(request.get("name"));
+        String name = request.get("name");
+        if (name == null || name.isBlank()) {
+            return Map.of("success", false, "error", "Имя consumer обязательно");
+        }
+        // Проверяем что consumer принадлежит текущему пользователю
+        String sid = sessionHelper.currentSid();
+        List<Map<String, Object>> userConsumers = dynamicConsumerService.listConsumers(sid);
+        boolean owns = userConsumers.stream().anyMatch(c -> name.equals(c.get("name")));
+        if (!owns) {
+            return Map.of("success", false, "error", "Consumer '" + name + "' не принадлежит вам");
+        }
+        return dynamicConsumerService.stopConsumer(name);
     }
 
     @PostMapping("/stop-all")

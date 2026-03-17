@@ -144,17 +144,21 @@ public class BenchmarkController {
         factory.setTransactionIdPrefix(txPrefix);
         KafkaTemplate<String, String> txTemplate = new KafkaTemplate<>(factory);
 
-        long start = System.nanoTime();
-        txTemplate.executeInTransaction(ops -> {
-            for (int i = 0; i < count; i++) {
-                ops.send(topic, "tx-" + i, "transactional-message-" + i);
-            }
-            return null;
-        });
-        long elapsed = System.nanoTime() - start;
+        long start;
+        long elapsed;
+        try {
+            start = System.nanoTime();
+            txTemplate.executeInTransaction(ops -> {
+                for (int i = 0; i < count; i++) {
+                    ops.send(topic, "tx-" + i, "transactional-message-" + i);
+                }
+                return null;
+            });
+            elapsed = System.nanoTime() - start;
+        } finally {
+            factory.destroy();
+        }
         double ms = elapsed / 1_000_000.0;
-
-        factory.destroy();
 
         Map<String, Object> r = new LinkedHashMap<>();
         r.put("mode", "Transactional");

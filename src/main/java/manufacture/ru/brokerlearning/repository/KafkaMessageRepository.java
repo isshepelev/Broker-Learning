@@ -40,4 +40,7 @@ public interface KafkaMessageRepository extends JpaRepository<KafkaMessageEntity
 
     List<KafkaMessageEntity> findByOwnerSidAndDirectionAndTimestampAfterOrderByTimestampDesc(
             String ownerSid, String direction, LocalDateTime after);
+
+    @org.springframework.transaction.annotation.Transactional
+    void deleteByOwnerSid(String ownerSid);
 }

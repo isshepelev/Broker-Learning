@@ -84,6 +84,7 @@ public class KafkaConsumerConfig {
         ConcurrentKafkaListenerContainerFactory<String, String> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory());
+        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
         factory.setRecordFilterStrategy((ConsumerRecord<String, String> record) ->
                 record.value() != null && record.value().contains("skip"));
         return factory;
@@ -95,7 +96,7 @@ public class KafkaConsumerConfig {
         ConcurrentKafkaListenerContainerFactory<String, String> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory());
-        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.RECORD);
+        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
 
         // Custom recoverer: пробуем DLT publish + уведомляем сервис через callback
         DefaultErrorHandler errorHandler = new DefaultErrorHandler(

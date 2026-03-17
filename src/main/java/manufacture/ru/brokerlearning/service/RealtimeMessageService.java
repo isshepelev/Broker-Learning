@@ -40,10 +40,10 @@ public class RealtimeMessageService {
 
         String message = String.format(
                 "{\"topic\":\"%s\",\"partition\":%d,\"offset\":%d,\"key\":\"%s\",\"value\":\"%s\",\"timestamp\":%d}",
-                record.topic(),
+                record.topic() != null ? record.topic().replace("\"", "\\\"") : "",
                 record.partition(),
                 record.offset(),
-                record.key() != null ? record.key() : "",
+                record.key() != null ? record.key().replace("\"", "\\\"") : "",
                 record.value() != null ? record.value().replace("\"", "\\\"") : "",
                 record.timestamp()
         );

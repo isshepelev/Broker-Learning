@@ -9,7 +9,7 @@ import java.time.LocalDateTime;
  * Трекинг принадлежности Kafka-ресурсов (топики, consumer group) пользователям.
  */
 @Entity
-@Table(name = "user_resources", uniqueConstraints = @UniqueConstraint(columnNames = {"resourceType", "resourceName"}))
+@Table(name = "user_resources", uniqueConstraints = @UniqueConstraint(columnNames = {"resource_type", "resource_name"}))
 @Data
 @Builder
 @NoArgsConstructor

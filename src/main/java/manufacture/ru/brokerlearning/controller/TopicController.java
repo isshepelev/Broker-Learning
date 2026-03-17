@@ -23,6 +23,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.Set;
 
 @Controller
 @RequestMapping("/topics")
@@ -56,6 +57,13 @@ public class TopicController {
 
     @GetMapping("/{name}")
     public String topicDetail(@PathVariable String name, Model model) {
+        // Проверяем ownership
+        Set<String> userTopics = resourceRepository.topicNamesForUser(sessionHelper.currentSid());
+        if (!userTopics.contains(name)) {
+            model.addAttribute("topicInfo", null);
+            model.addAttribute("currentPage", "topics");
+            return "topic-detail";
+        }
         try {
             model.addAttribute("topicInfo", adminService.getTopicInfo(name));
             model.addAttribute("configs", adminService.getTopicConfigs(name));
@@ -99,6 +107,13 @@ public class TopicController {
     public ResponseEntity<Map<String, Object>> deleteTopic(@PathVariable String name) {
         Map<String, Object> response = new HashMap<>();
         try {
+            // Проверяем ownership
+            Set<String> userTopics = resourceRepository.topicNamesForUser(sessionHelper.currentSid());
+            if (!userTopics.contains(name)) {
+                response.put("success", false);
+                response.put("error", "Топик не принадлежит вам");
+                return ResponseEntity.status(403).body(response);
+            }
             adminService.deleteTopic(name);
             resourceRepository.findByResourceTypeAndResourceName("TOPIC", name)
                     .ifPresent(resourceRepository::delete);
@@ -117,6 +132,12 @@ public class TopicController {
     @ResponseBody
     public Map<String, Object> topicMessages(@PathVariable String name,
                                              @RequestParam(defaultValue = "500") int limit) {
+        // Проверяем ownership
+        Set<String> userTopics = resourceRepository.topicNamesForUser(sessionHelper.currentSid());
+        if (!userTopics.contains(name)) {
+            return Map.of("success", false, "error", "Топик не принадлежит вам", "messages", List.of(), "count", 0);
+        }
+
         Map<String, Object> result = new HashMap<>();
         List<Map<String, Object>> messages = new ArrayList<>();
 
