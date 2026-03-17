@@ -1,7 +1,6 @@
 package manufacture.ru.brokerlearning.service;
 
 import jakarta.annotation.PostConstruct;
-import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import manufacture.ru.brokerlearning.config.KafkaConsumerConfig;
 import manufacture.ru.brokerlearning.config.RabbitConfig;
@@ -17,30 +16,29 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Сервис для сравнения Dead Letter Queue в Kafka (DLT) и RabbitMQ (DLX).
- */
 @Service
 @Slf4j
 public class DlqCompareService {
 
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("HH:mm:ss.SSS");
     private static final String KAFKA_TOPIC = "dlq-compare-topic";
+    private static final String SID_SEPARATOR = "::";
 
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final RabbitTemplate rabbitTemplate;
     private final KafkaConsumerConfig kafkaConsumerConfig;
     private final KafkaMessageRepository messageRepository;
 
-    @Getter
-    private final List<Map<String, String>> kafkaEvents = Collections.synchronizedList(new ArrayList<>());
-    @Getter
-    private final List<Map<String, String>> rabbitEvents = Collections.synchronizedList(new ArrayList<>());
-    @Getter
-    private final List<Map<String, String>> kafkaDead = Collections.synchronizedList(new ArrayList<>());
-    @Getter
-    private final List<Map<String, String>> rabbitDead = Collections.synchronizedList(new ArrayList<>());
+    private static class DlqSession {
+        final List<Map<String, String>> kafkaEvents = Collections.synchronizedList(new ArrayList<>());
+        final List<Map<String, String>> rabbitEvents = Collections.synchronizedList(new ArrayList<>());
+        final List<Map<String, String>> kafkaDead = Collections.synchronizedList(new ArrayList<>());
+        final List<Map<String, String>> rabbitDead = Collections.synchronizedList(new ArrayList<>());
+    }
+
+    private final ConcurrentHashMap<String, DlqSession> sessions = new ConcurrentHashMap<>();
 
     public DlqCompareService(KafkaTemplate<String, String> kafkaTemplate,
                              RabbitTemplate rabbitTemplate,
@@ -52,139 +50,147 @@ public class DlqCompareService {
         this.messageRepository = messageRepository;
     }
 
+    private DlqSession session(String sid) {
+        return sessions.computeIfAbsent(sid, k -> new DlqSession());
+    }
+
     @PostConstruct
     public void init() {
-        // Регистрируем callback — когда errorHandler исчерпает retry, он вызовет нас
         kafkaConsumerConfig.setDltCallback((record, exception) -> {
+            String key = record.key() != null ? record.key().toString() : "";
             String value = record.value() != null ? record.value().toString() : "";
+            String sid = extractSid(key);
             String time = now();
-            addKafkaEvent(time, "DLT", value, "Попало в Dead Letter Topic после 3 retry");
-            addDead(kafkaDead, time, value, "Kafka DLT");
-            log.warn("DLQ Kafka DLT callback: message buried: {}", value);
+            DlqSession s = session(sid);
+            addEvent(s.kafkaEvents, time, "DLT", value, "Попало в Dead Letter Topic после 3 retry");
+            addDead(s.kafkaDead, time, value);
         });
     }
 
-    public void sendToBoth(String message) {
+    public void sendToBoth(String sid, String message) {
         String time = now();
+        String key = sid + SID_SEPARATOR + "dlq-key";
+        DlqSession s = session(sid);
 
-        // Kafka
-        kafkaTemplate.send(KAFKA_TOPIC, "dlq-key", message);
+        kafkaTemplate.send(KAFKA_TOPIC, key, message);
         kafkaTemplate.flush();
-        addKafkaEvent(time, "SENT", message, "Отправлено в dlq-compare-topic");
+        addEvent(s.kafkaEvents, time, "SENT", message, "Отправлено в dlq-compare-topic");
 
-        // RabbitMQ
-        rabbitTemplate.convertAndSend(RabbitConfig.DLQ_WORK_EXCHANGE, RabbitConfig.DLQ_WORK_KEY, message);
-        addRabbitEvent(time, "SENT", message, "Отправлено в dlq-work-queue");
-
-        log.info("DLQ Compare: sent '{}' to both brokers", message);
+        // RabbitMQ: embed sid in message as prefix
+        rabbitTemplate.convertAndSend(RabbitConfig.DLQ_WORK_EXCHANGE, RabbitConfig.DLQ_WORK_KEY, sid + SID_SEPARATOR + message);
+        addEvent(s.rabbitEvents, time, "SENT", message, "Отправлено в dlq-work-queue");
     }
 
     // ======================== KAFKA ========================
 
     @KafkaListener(topics = "dlq-compare-topic", groupId = "dlq-compare-group", containerFactory = "errorHandlingFactory")
     public void kafkaConsume(ConsumerRecord<String, String> record) {
+        String key = record.key() != null ? record.key() : "";
         String value = record.value() != null ? record.value() : "";
+        String sid = extractSid(key);
         String time = now();
+        DlqSession s = session(sid);
 
         if (isBadMessage(value)) {
-            addKafkaEvent(time, "RETRY", value, "Попытка обработки — ошибка! Retry...");
-            log.warn("DLQ Kafka: BAD message, throwing exception: {}", value);
+            addEvent(s.kafkaEvents, time, "RETRY", value, "Попытка обработки — ошибка! Retry...");
             throw new RuntimeException("Kafka: ошибка обработки [" + value + "]");
         }
-
-        addKafkaEvent(time, "OK", value, "Успешно обработано");
-        log.info("DLQ Kafka: processed OK: {}", value);
+        addEvent(s.kafkaEvents, time, "OK", value, "Успешно обработано");
     }
-
-    // DLT consumer больше не нужен — callback в errorHandler напрямую записывает событие
 
     // ======================== RABBITMQ ========================
 
     @RabbitListener(queues = RabbitConfig.DLQ_WORK_QUEUE)
-    public void rabbitConsume(String message) {
+    public void rabbitConsume(String rawMessage) {
+        String sid = extractSidFromRabbit(rawMessage);
+        String message = extractMessageFromRabbit(rawMessage);
         String time = now();
+        DlqSession s = session(sid);
 
         if (isBadMessage(message)) {
-            addRabbitEvent(time, "FAIL", message, "Ошибка обработки — reject → сразу в DLX");
-            log.warn("DLQ Rabbit: BAD message, rejecting: {}", message);
-            throw new org.springframework.amqp.AmqpRejectAndDontRequeueException(
-                    "RabbitMQ: ошибка обработки [" + message + "]");
+            addEvent(s.rabbitEvents, time, "FAIL", message, "Ошибка обработки — reject → сразу в DLX");
+            throw new org.springframework.amqp.AmqpRejectAndDontRequeueException("RabbitMQ: ошибка [" + message + "]");
         }
-
-        addRabbitEvent(time, "OK", message, "Успешно обработано");
-        log.info("DLQ Rabbit: processed OK: {}", message);
+        addEvent(s.rabbitEvents, time, "OK", message, "Успешно обработано");
     }
 
     @RabbitListener(queues = RabbitConfig.DLQ_DEAD_QUEUE)
-    public void rabbitDlqConsume(String message) {
+    public void rabbitDlqConsume(String rawMessage) {
+        String sid = extractSidFromRabbit(rawMessage);
+        String message = extractMessageFromRabbit(rawMessage);
         String time = now();
-        addRabbitEvent(time, "DLQ", message, "Попало в Dead Letter Queue (мгновенно после reject)");
-        addDead(rabbitDead, time, message, "RabbitMQ DLQ");
-        log.warn("DLQ Rabbit DLQ: message buried: {}", message);
+        DlqSession s = session(sid);
+        addEvent(s.rabbitEvents, time, "DLQ", message, "Попало в Dead Letter Queue (мгновенно после reject)");
+        addDead(s.rabbitDead, time, message);
     }
 
-    // ======================== Actions on dead messages ========================
+    // ======================== Getters for controller ========================
 
-    public Map<String, Object> retryKafkaDead(int index) {
-        if (index < 0 || index >= kafkaDead.size()) return Map.of("error", "Неверный индекс");
-        Map<String, String> dead = kafkaDead.get(index);
+    public List<Map<String, String>> getKafkaEvents(String sid) { return session(sid).kafkaEvents; }
+    public List<Map<String, String>> getRabbitEvents(String sid) { return session(sid).rabbitEvents; }
+    public List<Map<String, String>> getKafkaDead(String sid) { return session(sid).kafkaDead; }
+    public List<Map<String, String>> getRabbitDead(String sid) { return session(sid).rabbitDead; }
+
+    // ======================== Actions ========================
+
+    public Map<String, Object> retryKafkaDead(String sid, int index) {
+        DlqSession s = session(sid);
+        if (index < 0 || index >= s.kafkaDead.size()) return Map.of("error", "Неверный индекс");
+        Map<String, String> dead = s.kafkaDead.get(index);
         String value = dead.get("value");
-        kafkaTemplate.send(KAFKA_TOPIC, "dlq-retry", value);
+        kafkaTemplate.send(KAFKA_TOPIC, sid + SID_SEPARATOR + "dlq-retry", value);
         kafkaTemplate.flush();
-        kafkaDead.remove(index);
-        addKafkaEvent(now(), "SENT", value, "Переотправлено из DLT (retry)");
-        log.info("DLQ Kafka: retrying dead message: {}", value);
+        s.kafkaDead.remove(index);
+        addEvent(s.kafkaEvents, now(), "SENT", value, "Переотправлено из DLT (retry)");
         return Map.of("success", true);
     }
 
-    public Map<String, Object> retryRabbitDead(int index) {
-        if (index < 0 || index >= rabbitDead.size()) return Map.of("error", "Неверный индекс");
-        Map<String, String> dead = rabbitDead.get(index);
+    public Map<String, Object> retryRabbitDead(String sid, int index) {
+        DlqSession s = session(sid);
+        if (index < 0 || index >= s.rabbitDead.size()) return Map.of("error", "Неверный индекс");
+        Map<String, String> dead = s.rabbitDead.get(index);
         String value = dead.get("value");
-        rabbitTemplate.convertAndSend(RabbitConfig.DLQ_WORK_EXCHANGE, RabbitConfig.DLQ_WORK_KEY, value);
-        rabbitDead.remove(index);
-        addRabbitEvent(now(), "SENT", value, "Переотправлено из DLQ (retry)");
-        log.info("DLQ Rabbit: retrying dead message: {}", value);
+        rabbitTemplate.convertAndSend(RabbitConfig.DLQ_WORK_EXCHANGE, RabbitConfig.DLQ_WORK_KEY, sid + SID_SEPARATOR + value);
+        s.rabbitDead.remove(index);
+        addEvent(s.rabbitEvents, now(), "SENT", value, "Переотправлено из DLQ (retry)");
         return Map.of("success", true);
     }
 
-    public Map<String, Object> retryAllKafkaDead() {
-        int count = kafkaDead.size();
-        for (int i = count - 1; i >= 0; i--) {
-            retryKafkaDead(0);
-        }
+    public Map<String, Object> retryAllKafkaDead(String sid) {
+        DlqSession s = session(sid);
+        int count = s.kafkaDead.size();
+        for (int i = count - 1; i >= 0; i--) retryKafkaDead(sid, 0);
         return Map.of("success", true, "count", count);
     }
 
-    public Map<String, Object> retryAllRabbitDead() {
-        int count = rabbitDead.size();
-        for (int i = count - 1; i >= 0; i--) {
-            retryRabbitDead(0);
-        }
+    public Map<String, Object> retryAllRabbitDead(String sid) {
+        DlqSession s = session(sid);
+        int count = s.rabbitDead.size();
+        for (int i = count - 1; i >= 0; i--) retryRabbitDead(sid, 0);
         return Map.of("success", true, "count", count);
     }
 
-    public Map<String, Object> saveDeadToDb(String source, int index) {
-        List<Map<String, String>> list = "kafka".equals(source) ? kafkaDead : rabbitDead;
+    public Map<String, Object> saveDeadToDb(String sid, String source, int index) {
+        DlqSession s = session(sid);
+        List<Map<String, String>> list = "kafka".equals(source) ? s.kafkaDead : s.rabbitDead;
         if (index < 0 || index >= list.size()) return Map.of("error", "Неверный индекс");
-        Map<String, String> dead = list.get(index);
-        saveSingleToDb(dead, source);
+        saveSingleToDb(list.get(index), source);
         list.remove(index);
         return Map.of("success", true);
     }
 
-    public Map<String, Object> saveAllDeadToDb(String source) {
-        List<Map<String, String>> list = "kafka".equals(source) ? kafkaDead : rabbitDead;
+    public Map<String, Object> saveAllDeadToDb(String sid, String source) {
+        DlqSession s = session(sid);
+        List<Map<String, String>> list = "kafka".equals(source) ? s.kafkaDead : s.rabbitDead;
         int count = list.size();
-        for (Map<String, String> dead : list) {
-            saveSingleToDb(dead, source);
-        }
+        for (Map<String, String> dead : list) saveSingleToDb(dead, source);
         list.clear();
         return Map.of("success", true, "count", count);
     }
 
-    public Map<String, Object> deleteDeadMessage(String source, int index) {
-        List<Map<String, String>> list = "kafka".equals(source) ? kafkaDead : rabbitDead;
+    public Map<String, Object> deleteDeadMessage(String sid, String source, int index) {
+        DlqSession s = session(sid);
+        List<Map<String, String>> list = "kafka".equals(source) ? s.kafkaDead : s.rabbitDead;
         if (index < 0 || index >= list.size()) return Map.of("error", "Неверный индекс");
         list.remove(index);
         return Map.of("success", true);
@@ -214,23 +220,49 @@ public class DlqCompareService {
         return Map.of("success", true);
     }
 
-    public Map<String, Object> retrySavedMessage(Long id) {
+    public Map<String, Object> retrySavedMessage(String sid, Long id) {
         Optional<KafkaMessageEntity> opt = messageRepository.findById(id);
         if (opt.isEmpty()) return Map.of("error", "Не найдено");
         KafkaMessageEntity entity = opt.get();
         String value = entity.getMessageValue();
-        String source = entity.getTopic();
+        DlqSession s = session(sid);
 
-        if (source.contains("Kafka")) {
-            kafkaTemplate.send(KAFKA_TOPIC, "dlq-retry", value);
+        if (entity.getTopic().contains("Kafka")) {
+            kafkaTemplate.send(KAFKA_TOPIC, sid + SID_SEPARATOR + "dlq-retry", value);
             kafkaTemplate.flush();
-            addKafkaEvent(now(), "SENT", value, "Переотправлено из БД (retry)");
+            addEvent(s.kafkaEvents, now(), "SENT", value, "Переотправлено из БД (retry)");
         } else {
-            rabbitTemplate.convertAndSend(RabbitConfig.DLQ_WORK_EXCHANGE, RabbitConfig.DLQ_WORK_KEY, value);
-            addRabbitEvent(now(), "SENT", value, "Переотправлено из БД (retry)");
+            rabbitTemplate.convertAndSend(RabbitConfig.DLQ_WORK_EXCHANGE, RabbitConfig.DLQ_WORK_KEY, sid + SID_SEPARATOR + value);
+            addEvent(s.rabbitEvents, now(), "SENT", value, "Переотправлено из БД (retry)");
         }
         messageRepository.deleteById(id);
         return Map.of("success", true);
+    }
+
+    public void clear(String sid) {
+        sessions.remove(sid);
+    }
+
+    public void cleanupSession(String sid) {
+        sessions.remove(sid);
+    }
+
+    // ======================== Helpers ========================
+
+    private boolean isBadMessage(String value) {
+        String lower = value.toLowerCase();
+        return lower.contains("poison") || lower.contains("bad") || lower.contains("error")
+                || lower.contains("fail") || lower.contains("crash") || lower.contains("broken");
+    }
+
+    private void addEvent(List<Map<String, String>> list, String time, String status, String value, String desc) {
+        list.add(0, Map.of("time", time, "status", status, "value", value, "desc", desc));
+        while (list.size() > 100) list.remove(list.size() - 1);
+    }
+
+    private void addDead(List<Map<String, String>> list, String time, String value) {
+        list.add(0, Map.of("time", time, "value", value));
+        while (list.size() > 100) list.remove(list.size() - 1);
     }
 
     private void saveSingleToDb(Map<String, String> dead, String source) {
@@ -244,41 +276,27 @@ public class DlqCompareService {
                 .timestamp(LocalDateTime.now())
                 .build();
         messageRepository.save(entity);
-        log.info("DLQ saved to DB: source={}, value={}", source, dead.get("value"));
     }
 
-    // ======================== Helpers ========================
-
-    public void clear() {
-        kafkaEvents.clear();
-        rabbitEvents.clear();
-        kafkaDead.clear();
-        rabbitDead.clear();
+    private String extractSid(String key) {
+        if (key != null && key.contains(SID_SEPARATOR)) {
+            return key.substring(0, key.indexOf(SID_SEPARATOR));
+        }
+        return "_default";
     }
 
-    private boolean isBadMessage(String value) {
-        String lower = value.toLowerCase();
-        return lower.contains("poison") || lower.contains("bad") || lower.contains("error")
-                || lower.contains("fail") || lower.contains("crash") || lower.contains("broken");
+    private String extractSidFromRabbit(String raw) {
+        if (raw != null && raw.contains(SID_SEPARATOR)) {
+            return raw.substring(0, raw.indexOf(SID_SEPARATOR));
+        }
+        return "_default";
     }
 
-    private void addKafkaEvent(String time, String status, String value, String description) {
-        kafkaEvents.add(0, Map.of("time", time, "status", status, "value", value, "desc", description));
-        trimList(kafkaEvents);
-    }
-
-    private void addRabbitEvent(String time, String status, String value, String description) {
-        rabbitEvents.add(0, Map.of("time", time, "status", status, "value", value, "desc", description));
-        trimList(rabbitEvents);
-    }
-
-    private void addDead(List<Map<String, String>> list, String time, String value, String source) {
-        list.add(0, Map.of("time", time, "value", value, "source", source));
-        trimList(list);
-    }
-
-    private void trimList(List<?> list) {
-        while (list.size() > 100) list.remove(list.size() - 1);
+    private String extractMessageFromRabbit(String raw) {
+        if (raw != null && raw.contains(SID_SEPARATOR)) {
+            return raw.substring(raw.indexOf(SID_SEPARATOR) + SID_SEPARATOR.length());
+        }
+        return raw;
     }
 
     private String now() {

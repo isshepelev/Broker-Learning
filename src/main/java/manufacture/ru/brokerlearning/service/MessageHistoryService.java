@@ -18,9 +18,7 @@ public class MessageHistoryService {
     private final KafkaMessageRepository kafkaMessageRepository;
     private final LocalDateTime appStartTime = LocalDateTime.now();
 
-    public void saveSentMessage(String topic, String key, String value, Integer partition, String headers) {
-        log.info("Saving sent message to topic: {}", topic);
-
+    public void saveSentMessage(String topic, String key, String value, Integer partition, String headers, String ownerSid) {
         KafkaMessageEntity entity = KafkaMessageEntity.builder()
                 .topic(topic)
                 .messageKey(key)
@@ -28,17 +26,13 @@ public class MessageHistoryService {
                 .partitionNum(partition)
                 .headers(headers)
                 .direction("SENT")
+                .ownerSid(ownerSid)
                 .timestamp(LocalDateTime.now())
                 .build();
-
         kafkaMessageRepository.save(entity);
-        log.debug("Sent message saved successfully");
     }
 
-    public void saveReceivedMessage(ConsumerRecord<String, String> record) {
-        log.info("Saving received message from topic: {}, partition: {}, offset: {}",
-                record.topic(), record.partition(), record.offset());
-
+    public void saveReceivedMessage(ConsumerRecord<String, String> record, String ownerSid) {
         KafkaMessageEntity entity = KafkaMessageEntity.builder()
                 .topic(record.topic())
                 .messageKey(record.key())
@@ -46,30 +40,38 @@ public class MessageHistoryService {
                 .partitionNum(record.partition())
                 .offsetNum(record.offset())
                 .direction("RECEIVED")
+                .ownerSid(ownerSid)
                 .timestamp(LocalDateTime.now())
                 .build();
-
         kafkaMessageRepository.save(entity);
-        log.debug("Received message saved successfully");
     }
 
-    public List<KafkaMessageEntity> getRecentMessages() {
-        log.info("Fetching recent messages");
-        return kafkaMessageRepository.findTop100ByOrderByTimestampDesc();
+    public List<KafkaMessageEntity> getRecentMessages(String ownerSid) {
+        return kafkaMessageRepository.findTop100ByOwnerSidOrderByTimestampDesc(ownerSid);
     }
 
     public List<KafkaMessageEntity> getMessagesByTopic(String topic) {
-        log.info("Fetching messages for topic: {}", topic);
         return kafkaMessageRepository.findByTopicOrderByTimestampDesc(topic);
     }
 
-    public List<KafkaMessageEntity> getMessagesByDirection(String direction) {
-        log.info("Fetching messages with direction: {}", direction);
-        return kafkaMessageRepository.findByDirectionOrderByTimestampDesc(direction);
+    public List<KafkaMessageEntity> getMessagesByDirection(String direction, String ownerSid) {
+        return kafkaMessageRepository.findByDirectionAndOwnerSidOrderByTimestampDesc(direction, ownerSid);
     }
 
-    public List<KafkaMessageEntity> getMessagesReceivedSinceStart() {
-        log.info("Fetching messages received since app start: {}", appStartTime);
-        return kafkaMessageRepository.findByDirectionAndTimestampAfterOrderByTimestampDesc("RECEIVED", appStartTime);
+    public List<KafkaMessageEntity> getMessagesReceivedSinceStart(String ownerSid) {
+        return kafkaMessageRepository.findByOwnerSidAndDirectionAndTimestampAfterOrderByTimestampDesc(
+                ownerSid, "RECEIVED", appStartTime);
+    }
+
+    public long countByDirection(String direction, String ownerSid) {
+        return kafkaMessageRepository.countByDirectionAndOwnerSid(direction, ownerSid);
+    }
+
+    public long countSinceTime(String ownerSid, LocalDateTime after) {
+        return kafkaMessageRepository.countByOwnerSidAndTimestampAfter(ownerSid, after);
+    }
+
+    public List<KafkaMessageEntity> getMessagesSince(String ownerSid, LocalDateTime after) {
+        return kafkaMessageRepository.findByOwnerSidAndTimestampAfterOrderByTimestampAsc(ownerSid, after);
     }
 }

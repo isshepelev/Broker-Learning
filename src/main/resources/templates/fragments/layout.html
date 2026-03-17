@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org">
+<html xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 
 <!-- ==================== HEAD FRAGMENT ==================== -->
 <head th:fragment="head(title)">
@@ -124,6 +124,24 @@
         .header-reset-btn:hover {
             color: #fff;
             background: rgba(239,68,68,.8);
+            border-color: #ef4444;
+        }
+        .header-user {
+            color: var(--c-text-secondary);
+            font-weight: 600;
+            font-size: .85rem;
+        }
+        .header-logout-btn {
+            color: var(--c-text-muted);
+            text-decoration: none;
+            font-size: .82rem;
+            padding: .35rem .8rem;
+            border: 1px solid var(--c-border);
+            border-radius: 50px;
+            transition: all var(--transition);
+        }
+        .header-logout-btn:hover {
+            color: #ef4444;
             border-color: #ef4444;
         }
 
@@ -524,6 +542,8 @@
         <div class="d-flex align-items-center gap-3">
             <a class="header-external" href="http://localhost:8090" target="_blank" rel="noopener">Kafka UI &#8599;</a>
             <button class="header-reset-btn" onclick="globalReset()" id="globalResetBtn">Reset</button>
+            <span class="header-user" sec:authorize="isAuthenticated()" sec:authentication="name">user</span>
+            <a class="header-logout-btn" th:href="@{/logout}" sec:authorize="isAuthenticated()">Выйти</a>
         </div>
     </div>
     <nav class="nav-strip">

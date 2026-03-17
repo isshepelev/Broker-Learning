@@ -2,6 +2,9 @@ package manufacture.ru.brokerlearning.controller;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import manufacture.ru.brokerlearning.config.UserSessionHelper;
+import manufacture.ru.brokerlearning.model.UserResource;
+import manufacture.ru.brokerlearning.repository.UserResourceRepository;
 import manufacture.ru.brokerlearning.service.KafkaAdminService;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -28,6 +31,8 @@ import java.util.*;
 public class TopicController {
 
     private final KafkaAdminService adminService;
+    private final UserSessionHelper sessionHelper;
+    private final UserResourceRepository resourceRepository;
 
     @Value("${spring.kafka.bootstrap-servers}")
     private String bootstrapServers;
@@ -35,7 +40,12 @@ public class TopicController {
     @GetMapping("")
     public String topicsPage(Model model) {
         try {
-            model.addAttribute("topicNames", adminService.listTopics());
+            String sid = sessionHelper.currentSid();
+            Set<String> userTopics = resourceRepository.topicNamesForUser(sid);
+            // Show only topics owned by this user
+            Set<String> allTopics = adminService.listTopics();
+            allTopics.retainAll(userTopics);
+            model.addAttribute("topicNames", allTopics);
         } catch (Exception e) {
             log.warn("Unable to list topics: {}", e.getMessage());
             model.addAttribute("topicNames", Collections.emptySet());
@@ -67,6 +77,12 @@ public class TopicController {
         Map<String, Object> response = new HashMap<>();
         try {
             adminService.createTopic(name, partitions, replicationFactor);
+            // Track ownership
+            resourceRepository.save(UserResource.builder()
+                    .resourceType("TOPIC")
+                    .resourceName(name)
+                    .ownerSid(sessionHelper.currentSid())
+                    .build());
             response.put("success", true);
             response.put("message", "Topic '" + name + "' created successfully");
             return ResponseEntity.ok(response);
@@ -84,6 +100,8 @@ public class TopicController {
         Map<String, Object> response = new HashMap<>();
         try {
             adminService.deleteTopic(name);
+            resourceRepository.findByResourceTypeAndResourceName("TOPIC", name)
+                    .ifPresent(resourceRepository::delete);
             response.put("success", true);
             response.put("message", "Topic '" + name + "' deleted successfully");
             return ResponseEntity.ok(response);
@@ -125,10 +143,7 @@ public class TopicController {
             int emptyPolls = 0;
             while (collected < limit && emptyPolls < 2) {
                 ConsumerRecords<String, String> records = consumer.poll(Duration.ofSeconds(2));
-                if (records.isEmpty()) {
-                    emptyPolls++;
-                    continue;
-                }
+                if (records.isEmpty()) { emptyPolls++; continue; }
                 for (ConsumerRecord<String, String> record : records) {
                     if (collected >= limit) break;
                     Map<String, Object> msg = new LinkedHashMap<>();
@@ -141,7 +156,6 @@ public class TopicController {
                     collected++;
                 }
             }
-
             result.put("success", true);
             result.put("messages", messages);
             result.put("count", messages.size());
@@ -152,7 +166,6 @@ public class TopicController {
             result.put("messages", List.of());
             result.put("count", 0);
         }
-
         return result;
     }
 }

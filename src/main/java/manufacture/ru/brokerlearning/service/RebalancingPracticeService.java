@@ -1,7 +1,6 @@
 package manufacture.ru.brokerlearning.service;
 
 import lombok.extern.slf4j.Slf4j;
-import manufacture.ru.brokerlearning.config.InternalKafkaRegistry;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.NewPartitions;
 import org.apache.kafka.clients.admin.NewTopic;
@@ -18,9 +17,6 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * Режим практики: пользователь сам настраивает топик, партиции и consumer-группу.
- */
 @Service
 @Slf4j
 public class RebalancingPracticeService {
@@ -32,16 +28,16 @@ public class RebalancingPracticeService {
     private final String bootstrapServers;
     private final ExecutorService executor = Executors.newCachedThreadPool();
 
-    // Текущая конфигурация практики
-    private volatile String currentTopic;
-    private volatile String currentGroupId;
-    private volatile int currentPartitions;
-    private volatile boolean sessionActive = false;
-
-    private final AtomicInteger consumerCounter = new AtomicInteger(0);
-    private final Map<String, PracticeConsumerHandle> handles = new ConcurrentHashMap<>();
-    private final Map<String, Set<Integer>> assignments = new ConcurrentHashMap<>();
-    private final List<Map<String, String>> eventLog = Collections.synchronizedList(new ArrayList<>());
+    private static class PracticeSession {
+        volatile String currentTopic;
+        volatile String currentGroupId;
+        volatile int currentPartitions;
+        volatile boolean sessionActive = false;
+        final AtomicInteger consumerCounter = new AtomicInteger(0);
+        final Map<String, PracticeConsumerHandle> handles = new ConcurrentHashMap<>();
+        final Map<String, Set<Integer>> assignments = new ConcurrentHashMap<>();
+        final List<Map<String, String>> eventLog = Collections.synchronizedList(new ArrayList<>());
+    }
 
     private static class PracticeConsumerHandle {
         volatile Future<?> future;
@@ -49,210 +45,157 @@ public class RebalancingPracticeService {
         volatile boolean running = true;
     }
 
+    private final ConcurrentHashMap<String, PracticeSession> sessions = new ConcurrentHashMap<>();
+
     public RebalancingPracticeService(org.springframework.kafka.core.KafkaAdmin kafkaAdmin) {
         Object bs = kafkaAdmin.getConfigurationProperties().get("bootstrap.servers");
         this.bootstrapServers = bs instanceof String ? (String) bs
                 : String.join(",", (Collection<String>) bs);
     }
 
-    /**
-     * Создать сессию практики: топик + группу.
-     */
-    public synchronized Map<String, Object> createSession(String topicName, String groupId, int partitions) {
-        // Сначала останавливаем предыдущую сессию если есть
-        if (sessionActive) {
-            doReset();
-        }
+    private PracticeSession session(String sid) {
+        return sessions.computeIfAbsent(sid, k -> new PracticeSession());
+    }
+
+    public synchronized Map<String, Object> createSession(String sid, String topicName, String groupId, int partitions) {
+        PracticeSession s = session(sid);
+        if (s.sessionActive) doReset(s);
 
         topicName = topicName.trim();
         groupId = groupId.trim();
+        if (topicName.isEmpty() || groupId.isEmpty()) return Map.of("error", "Имя топика и группы не могут быть пустыми");
+        if (partitions < 1 || partitions > MAX_PARTITIONS) return Map.of("error", "Количество партиций: от 1 до " + MAX_PARTITIONS);
 
-        if (topicName.isEmpty() || groupId.isEmpty()) {
-            return Map.of("error", "Имя топика и группы не могут быть пустыми");
-        }
-        if (partitions < 1 || partitions > MAX_PARTITIONS) {
-            return Map.of("error", "Количество партиций: от 1 до " + MAX_PARTITIONS);
-        }
-
-        // Создаём/проверяем топик
         try (AdminClient admin = AdminClient.create(adminProps())) {
             Set<String> existing = admin.listTopics().names().get();
             if (existing.contains(topicName)) {
-                // Топик существует — узнаём количество партиций
                 var desc = admin.describeTopics(List.of(topicName)).allTopicNames().get().get(topicName);
-                int existingPartitions = desc.partitions().size();
-                if (partitions > existingPartitions) {
-                    // Увеличиваем
+                int ep = desc.partitions().size();
+                if (partitions > ep) {
                     admin.createPartitions(Map.of(topicName, NewPartitions.increaseTo(partitions))).all().get();
-                    currentPartitions = partitions;
+                    s.currentPartitions = partitions;
                 } else {
-                    currentPartitions = existingPartitions;
+                    s.currentPartitions = ep;
                 }
-                addEvent("SESSION", "—", "Используется существующий топик «" + topicName + "» (" + currentPartitions + " партиций)");
             } else {
                 admin.createTopics(List.of(new NewTopic(topicName, partitions, (short) 1))).all().get();
-                currentPartitions = partitions;
-                addEvent("SESSION", "—", "Создан топик «" + topicName + "» с " + partitions + " партициями");
+                s.currentPartitions = partitions;
             }
         } catch (Exception e) {
-            log.error("Practice: create session error: {}", e.getMessage());
-            return Map.of("error", "Ошибка создания топика: " + e.getMessage());
+            return Map.of("error", "Ошибка: " + e.getMessage());
         }
 
-        this.currentTopic = topicName;
-        this.currentGroupId = groupId;
-        this.sessionActive = true;
-        this.consumerCounter.set(0);
-
-        addEvent("SESSION", "—", "Группа: «" + groupId + "», готово к добавлению consumer'ов");
-        log.info("Practice: session started — topic={}, group={}, partitions={}", topicName, groupId, currentPartitions);
-
-        return getStatus();
+        s.currentTopic = topicName;
+        s.currentGroupId = groupId;
+        s.sessionActive = true;
+        s.consumerCounter.set(0);
+        addEvent(s, "SESSION", "—", "Топик: " + topicName + ", группа: " + groupId + ", партиций: " + s.currentPartitions);
+        return getStatus(sid);
     }
 
-    public synchronized Map<String, Object> addConsumer() {
-        if (!sessionActive) return Map.of("error", "Сначала создайте сессию");
-        if (handles.size() >= MAX_CONSUMERS) {
-            addEvent("ADD", "—", "Достигнут лимит: " + MAX_CONSUMERS + " consumer'ов");
-            return getStatus();
-        }
+    public synchronized Map<String, Object> addConsumer(String sid) {
+        PracticeSession s = session(sid);
+        if (!s.sessionActive) return Map.of("error", "Сначала создайте сессию");
+        if (s.handles.size() >= MAX_CONSUMERS) return getStatus(sid);
 
-        String id = "Consumer-" + consumerCounter.incrementAndGet();
+        String id = "Consumer-" + s.consumerCounter.incrementAndGet();
         PracticeConsumerHandle handle = new PracticeConsumerHandle();
-        handles.put(id, handle);
-        handle.future = executor.submit(() -> runConsumer(id, handle));
-
-        addEvent("ADD", id, "Добавлен в группу «" + currentGroupId + "», ожидание rebalance...");
-        log.info("Practice: adding {} to group {}", id, currentGroupId);
-
-        waitForStableAssignments();
-        return getStatus();
+        s.handles.put(id, handle);
+        handle.future = executor.submit(() -> runConsumer(s, id, handle));
+        addEvent(s, "ADD", id, "Добавлен, ожидание rebalance...");
+        waitForStable(s);
+        return getStatus(sid);
     }
 
-    public synchronized Map<String, Object> removeConsumer() {
-        if (!sessionActive || handles.isEmpty()) return getStatus();
+    public synchronized Map<String, Object> removeConsumer(String sid) {
+        PracticeSession s = session(sid);
+        if (!s.sessionActive || s.handles.isEmpty()) return getStatus(sid);
+        String lastId = s.handles.keySet().stream()
+                .max(Comparator.comparingInt(k -> Integer.parseInt(k.split("-")[1]))).orElse(null);
+        if (lastId == null) return getStatus(sid);
 
-        String lastId = handles.keySet().stream()
-                .max(Comparator.comparingInt(k -> Integer.parseInt(k.split("-")[1])))
-                .orElse(null);
-        if (lastId == null) return getStatus();
-
-        PracticeConsumerHandle handle = handles.remove(lastId);
+        PracticeConsumerHandle handle = s.handles.remove(lastId);
         handle.running = false;
         if (handle.consumer != null) handle.consumer.wakeup();
-        if (handle.future != null) {
-            try { handle.future.get(10, TimeUnit.SECONDS); } catch (Exception ignored) {}
-        }
-        assignments.remove(lastId);
-
-        addEvent("REMOVE", lastId, "Удалён из группы, запущен rebalance...");
-        log.info("Practice: removed {} from group {}", lastId, currentGroupId);
-
-        if (!handles.isEmpty()) {
-            waitForStableAssignments();
-        }
-        return getStatus();
+        if (handle.future != null) { try { handle.future.get(10, TimeUnit.SECONDS); } catch (Exception ignored) {} }
+        s.assignments.remove(lastId);
+        addEvent(s, "REMOVE", lastId, "Удалён, rebalance...");
+        if (!s.handles.isEmpty()) waitForStable(s);
+        return getStatus(sid);
     }
 
-    public synchronized Map<String, Object> addPartition() {
-        if (!sessionActive) return Map.of("error", "Сначала создайте сессию");
-        if (currentPartitions >= MAX_PARTITIONS) {
-            addEvent("PARTITION", "—", "Достигнут лимит: " + MAX_PARTITIONS + " партиций");
-            return getStatus();
-        }
+    public synchronized Map<String, Object> addPartition(String sid) {
+        PracticeSession s = session(sid);
+        if (!s.sessionActive) return Map.of("error", "Сначала создайте сессию");
+        if (s.currentPartitions >= MAX_PARTITIONS) return getStatus(sid);
 
-        int newCount = currentPartitions + 1;
+        int nc = s.currentPartitions + 1;
         try (AdminClient admin = AdminClient.create(adminProps())) {
-            admin.createPartitions(Map.of(currentTopic, NewPartitions.increaseTo(newCount))).all().get();
-            currentPartitions = newCount;
-            addEvent("PARTITION", "—", "Добавлена партиция P" + (newCount - 1) + " (всего: " + newCount + ")");
-            log.info("Practice: increased partitions to {} for topic {}", newCount, currentTopic);
+            admin.createPartitions(Map.of(s.currentTopic, NewPartitions.increaseTo(nc))).all().get();
+            s.currentPartitions = nc;
+            addEvent(s, "PARTITION", "—", "P" + (nc - 1) + " добавлена (всего: " + nc + ")");
         } catch (Exception e) {
-            log.error("Practice: add partition error: {}", e.getMessage());
-            addEvent("PARTITION", "—", "Ошибка: " + e.getMessage());
-            return getStatus();
+            addEvent(s, "PARTITION", "—", "Ошибка: " + e.getMessage());
+            return getStatus(sid);
         }
-
-        if (!handles.isEmpty()) {
-            waitForStableAssignments();
-        }
-        return getStatus();
+        if (!s.handles.isEmpty()) waitForStable(s);
+        return getStatus(sid);
     }
 
-    public synchronized Map<String, Object> reset() {
-        doReset();
-        return getStatus();
+    public synchronized Map<String, Object> reset(String sid) {
+        PracticeSession s = session(sid);
+        doReset(s);
+        return getStatus(sid);
     }
 
-    private void doReset() {
-        for (var handle : handles.values()) {
-            handle.running = false;
-            if (handle.consumer != null) handle.consumer.wakeup();
-        }
-        for (var handle : handles.values()) {
-            if (handle.future != null) {
-                try { handle.future.get(10, TimeUnit.SECONDS); } catch (Exception ignored) {}
-            }
-        }
-        handles.clear();
-        assignments.clear();
-        eventLog.clear();
-        consumerCounter.set(0);
-        sessionActive = false;
-        currentTopic = null;
-        currentGroupId = null;
-        currentPartitions = 0;
-
-        addEvent("RESET", "—", "Сессия практики сброшена");
-    }
-
-    public Map<String, Object> getStatus() {
+    public Map<String, Object> getStatus(String sid) {
+        PracticeSession s = session(sid);
         Map<String, Object> status = new LinkedHashMap<>();
-        status.put("sessionActive", sessionActive);
-        status.put("topicName", currentTopic);
-        status.put("groupId", currentGroupId);
-        status.put("totalPartitions", currentPartitions);
+        status.put("sessionActive", s.sessionActive);
+        status.put("topicName", s.currentTopic);
+        status.put("groupId", s.currentGroupId);
+        status.put("totalPartitions", s.currentPartitions);
         status.put("maxPartitions", MAX_PARTITIONS);
-        status.put("consumerCount", handles.size());
+        status.put("consumerCount", s.handles.size());
         status.put("maxConsumers", MAX_CONSUMERS);
-        status.put("assignments", new LinkedHashMap<>(assignments));
-        status.put("events", new ArrayList<>(eventLog));
-        status.put("allConsumers", new ArrayList<>(handles.keySet()));
+        status.put("assignments", new LinkedHashMap<>(s.assignments));
+        status.put("events", new ArrayList<>(s.eventLog));
+        status.put("allConsumers", new ArrayList<>(s.handles.keySet()));
 
         Set<Integer> allAssigned = new HashSet<>();
-        assignments.values().forEach(allAssigned::addAll);
+        s.assignments.values().forEach(allAssigned::addAll);
         Set<Integer> unassigned = new LinkedHashSet<>();
-        for (int i = 0; i < currentPartitions; i++) {
+        for (int i = 0; i < s.currentPartitions; i++) {
             if (!allAssigned.contains(i)) unassigned.add(i);
         }
         status.put("unassigned", unassigned);
-
         return status;
     }
 
-    /**
-     * Список существующих топиков для выбора.
-     */
-    public Set<String> listTopics() {
-        try (AdminClient admin = AdminClient.create(adminProps())) {
-            Set<String> all = admin.listTopics().names().get();
-            Set<String> filtered = new java.util.LinkedHashSet<>();
-            for (String t : all) {
-                if (InternalKafkaRegistry.isUserTopic(t)) filtered.add(t);
-            }
-            return filtered;
-        } catch (Exception e) {
-            log.error("Practice: list topics error: {}", e.getMessage());
-            return Set.of();
-        }
+    public void cleanupSession(String sid) {
+        PracticeSession s = sessions.remove(sid);
+        if (s != null) doReset(s);
     }
 
-    // ───── internal ─────
+    private void doReset(PracticeSession s) {
+        for (var h : s.handles.values()) {
+            h.running = false;
+            if (h.consumer != null) h.consumer.wakeup();
+        }
+        for (var h : s.handles.values()) {
+            if (h.future != null) { try { h.future.get(10, TimeUnit.SECONDS); } catch (Exception ignored) {} }
+        }
+        s.handles.clear();
+        s.assignments.clear();
+        s.eventLog.clear();
+        s.consumerCounter.set(0);
+        s.sessionActive = false;
+    }
 
-    private void runConsumer(String consumerId, PracticeConsumerHandle handle) {
+    private void runConsumer(PracticeSession s, String consumerId, PracticeConsumerHandle handle) {
         Properties props = new Properties();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, currentGroupId);
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, s.currentGroupId);
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
@@ -263,78 +206,51 @@ public class RebalancingPracticeService {
 
         try (KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props)) {
             handle.consumer = consumer;
-
-            consumer.subscribe(List.of(currentTopic), new ConsumerRebalanceListener() {
+            consumer.subscribe(List.of(s.currentTopic), new ConsumerRebalanceListener() {
                 @Override
-                public void onPartitionsRevoked(Collection<TopicPartition> partitions) {
-                    assignments.remove(consumerId);
+                public void onPartitionsRevoked(java.util.Collection<TopicPartition> partitions) {
+                    s.assignments.remove(consumerId);
                     if (!partitions.isEmpty()) {
                         Set<Integer> revoked = new LinkedHashSet<>();
                         partitions.forEach(tp -> revoked.add(tp.partition()));
-                        addEvent("REVOKE", consumerId, "Отобраны партиции: " + revoked);
+                        addEvent(s, "REVOKE", consumerId, "Отобраны: " + revoked);
                     }
                 }
-
                 @Override
-                public void onPartitionsAssigned(Collection<TopicPartition> partitions) {
+                public void onPartitionsAssigned(java.util.Collection<TopicPartition> partitions) {
                     Set<Integer> assigned = new LinkedHashSet<>();
                     partitions.forEach(tp -> assigned.add(tp.partition()));
-                    assignments.put(consumerId, assigned);
-
-                    if (!assigned.isEmpty()) {
-                        addEvent("ASSIGN", consumerId, "Назначены партиции: " + assigned);
-                    } else {
-                        addEvent("ASSIGN", consumerId, "Нет партиций (idle)");
-                    }
+                    s.assignments.put(consumerId, assigned);
+                    addEvent(s, "ASSIGN", consumerId, assigned.isEmpty() ? "Нет партиций (idle)" : "Назначены: " + assigned);
                 }
             });
-
             while (handle.running) {
-                try {
-                    consumer.poll(Duration.ofMillis(1000));
-                } catch (WakeupException e) {
-                    if (!handle.running) break;
-                }
+                try { consumer.poll(Duration.ofMillis(1000)); }
+                catch (WakeupException e) { if (!handle.running) break; }
             }
         } catch (Exception e) {
             log.warn("Practice: {} error: {}", consumerId, e.getMessage());
-        } finally {
-            log.info("Practice: {} shut down", consumerId);
         }
     }
 
-    private void waitForStableAssignments() {
+    private void waitForStable(PracticeSession s) {
         long deadline = System.currentTimeMillis() + 15_000;
         try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
-
         while (System.currentTimeMillis() < deadline) {
-            if (isAssignmentStable()) {
-                log.info("Practice: assignments stable — {}", assignments);
-                return;
+            Set<Integer> all = new HashSet<>();
+            for (String cId : s.handles.keySet()) {
+                Set<Integer> parts = s.assignments.get(cId);
+                if (parts != null) all.addAll(parts);
             }
+            if (all.size() == s.currentPartitions) return;
             try { Thread.sleep(500); } catch (InterruptedException ignored) {}
         }
-        log.warn("Practice: timed out waiting for stable assignments");
     }
 
-    private boolean isAssignmentStable() {
-        Set<Integer> allPartitions = new HashSet<>();
-        for (String cId : handles.keySet()) {
-            Set<Integer> parts = assignments.get(cId);
-            if (parts != null) allPartitions.addAll(parts);
-        }
-        return allPartitions.size() == currentPartitions;
-    }
-
-    private void addEvent(String type, String consumer, String message) {
-        synchronized (eventLog) {
-            eventLog.add(0, Map.of(
-                    "time", LocalTime.now().format(FMT),
-                    "type", type,
-                    "consumer", consumer,
-                    "message", message
-            ));
-            while (eventLog.size() > 50) eventLog.remove(eventLog.size() - 1);
+    private void addEvent(PracticeSession s, String type, String consumer, String message) {
+        synchronized (s.eventLog) {
+            s.eventLog.add(0, Map.of("time", LocalTime.now().format(FMT), "type", type, "consumer", consumer, "message", message));
+            while (s.eventLog.size() > 50) s.eventLog.remove(s.eventLog.size() - 1);
         }
     }
 

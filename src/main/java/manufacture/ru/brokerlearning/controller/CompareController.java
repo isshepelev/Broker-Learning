@@ -2,6 +2,7 @@ package manufacture.ru.brokerlearning.controller;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import manufacture.ru.brokerlearning.config.UserSessionHelper;
 import manufacture.ru.brokerlearning.service.RabbitDemoService;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Controller;
@@ -11,6 +12,7 @@ import org.springframework.web.bind.annotation.*;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Controller
@@ -20,14 +22,22 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class CompareController {
 
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("HH:mm:ss.SSS");
-    private static final String KAFKA_TOPIC = "compare-topic";
+    private static final String TOPIC_PREFIX = "compare-topic-";
 
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final RabbitDemoService rabbitDemoService;
+    private final UserSessionHelper sessionHelper;
 
-    // Kafka tracking (in-memory for demo)
-    private final List<Map<String, String>> kafkaSent = Collections.synchronizedList(new ArrayList<>());
-    private final AtomicInteger kafkaSentCount = new AtomicInteger(0);
+    private static class CompareSession {
+        final List<Map<String, String>> kafkaSent = Collections.synchronizedList(new ArrayList<>());
+        final AtomicInteger kafkaSentCount = new AtomicInteger(0);
+    }
+
+    private final ConcurrentHashMap<String, CompareSession> sessions = new ConcurrentHashMap<>();
+
+    private CompareSession session(String sid) {
+        return sessions.computeIfAbsent(sid, k -> new CompareSession());
+    }
 
     @GetMapping("")
     public String page(Model model) {
@@ -35,26 +45,23 @@ public class CompareController {
         return "compare";
     }
 
-    /**
-     * Отправить одно сообщение в ОБА брокера одновременно.
-     */
     @PostMapping("/send")
     @ResponseBody
     public Map<String, Object> send(@RequestBody Map<String, String> request) {
+        String sid = sessionHelper.currentSid();
+        CompareSession s = session(sid);
         Map<String, Object> response = new HashMap<>();
         String message = request.getOrDefault("message", "test-" + System.currentTimeMillis());
         String time = LocalDateTime.now().format(FMT);
 
         try {
-            // Kafka
-            kafkaTemplate.send(KAFKA_TOPIC, "compare-key", message);
+            kafkaTemplate.send(TOPIC_PREFIX + sid, "compare-key", message);
             kafkaTemplate.flush();
-            kafkaSentCount.incrementAndGet();
-            kafkaSent.add(0, Map.of("time", time, "value", message));
-            while (kafkaSent.size() > 50) kafkaSent.remove(kafkaSent.size() - 1);
+            s.kafkaSentCount.incrementAndGet();
+            s.kafkaSent.add(0, Map.of("time", time, "value", message));
+            while (s.kafkaSent.size() > 50) s.kafkaSent.remove(s.kafkaSent.size() - 1);
 
-            // RabbitMQ
-            rabbitDemoService.send(message);
+            rabbitDemoService.send(sid, message);
 
             response.put("success", true);
             response.put("message", message);
@@ -68,31 +75,26 @@ public class CompareController {
     @GetMapping("/status")
     @ResponseBody
     public Map<String, Object> status() {
+        String sid = sessionHelper.currentSid();
+        CompareSession s = session(sid);
         Map<String, Object> data = new HashMap<>();
-
-        // Kafka
-        data.put("kafkaSentCount", kafkaSentCount.get());
-        data.put("kafkaSent", kafkaSent);
-        // Kafka messages stay in topic — they can be re-read
+        data.put("kafkaSentCount", s.kafkaSentCount.get());
+        data.put("kafkaSent", s.kafkaSent);
         data.put("kafkaNote", "Сообщения остаются в topic и могут быть перечитаны");
-
-        // RabbitMQ
-        data.put("rabbitSentCount", rabbitDemoService.getSentCount());
-        data.put("rabbitReceivedCount", rabbitDemoService.getReceivedCount());
-        data.put("rabbitSent", rabbitDemoService.getSentMessages());
-        data.put("rabbitReceived", rabbitDemoService.getReceivedMessages());
-        // RabbitMQ messages are removed after consumption
+        data.put("rabbitSentCount", rabbitDemoService.getSentCount(sid));
+        data.put("rabbitReceivedCount", rabbitDemoService.getReceivedCount(sid));
+        data.put("rabbitSent", rabbitDemoService.getSentMessages(sid));
+        data.put("rabbitReceived", rabbitDemoService.getReceivedMessages(sid));
         data.put("rabbitNote", "Сообщения удалены из очереди после прочтения consumer-ом");
-
         return data;
     }
 
     @PostMapping("/clear")
     @ResponseBody
     public Map<String, Object> clear() {
-        kafkaSent.clear();
-        kafkaSentCount.set(0);
-        rabbitDemoService.clear();
+        String sid = sessionHelper.currentSid();
+        sessions.remove(sid);
+        rabbitDemoService.clear(sid);
         return Map.of("success", true);
     }
 }

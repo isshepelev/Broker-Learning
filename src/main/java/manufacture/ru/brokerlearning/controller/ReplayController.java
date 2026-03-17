@@ -2,6 +2,9 @@ package manufacture.ru.brokerlearning.controller;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import manufacture.ru.brokerlearning.config.UserSessionHelper;
+import manufacture.ru.brokerlearning.model.UserResource;
+import manufacture.ru.brokerlearning.repository.UserResourceRepository;
 import manufacture.ru.brokerlearning.service.ReplayPracticeService;
 import manufacture.ru.brokerlearning.service.ReplayService;
 import org.springframework.stereotype.Controller;
@@ -21,6 +24,8 @@ public class ReplayController {
 
     private final ReplayService replayService;
     private final ReplayPracticeService practiceService;
+    private final UserSessionHelper sessionHelper;
+    private final UserResourceRepository resourceRepository;
 
     @GetMapping("")
     public String page(Model model) {
@@ -31,17 +36,18 @@ public class ReplayController {
     @PostMapping("/send")
     @ResponseBody
     public Map<String, Object> send(@RequestBody Map<String, Object> request) {
+        String sid = sessionHelper.currentSid();
         Map<String, Object> response = new HashMap<>();
         try {
             String customMessage = (String) request.get("customMessage");
             if (customMessage != null && !customMessage.isBlank()) {
-                Map<String, String> sent = replayService.sendCustomMessage(customMessage);
+                Map<String, String> sent = replayService.sendCustomMessage(sid, customMessage);
                 response.put("success", true);
                 response.put("sent", List.of(sent));
                 response.put("count", 1);
             } else {
                 int count = request.containsKey("count") ? ((Number) request.get("count")).intValue() : 5;
-                List<Map<String, String>> sent = replayService.sendMessages(count);
+                List<Map<String, String>> sent = replayService.sendMessages(sid, count);
                 response.put("success", true);
                 response.put("sent", sent);
                 response.put("count", sent.size());
@@ -56,9 +62,10 @@ public class ReplayController {
     @PostMapping("/read")
     @ResponseBody
     public Map<String, Object> read() {
+        String sid = sessionHelper.currentSid();
         Map<String, Object> response = new HashMap<>();
         try {
-            Map<String, Object> result = replayService.readMessages();
+            Map<String, Object> result = replayService.readMessages(sid);
             response.put("success", true);
             response.putAll(result);
         } catch (Exception e) {
@@ -71,15 +78,16 @@ public class ReplayController {
     @PostMapping("/reset")
     @ResponseBody
     public Map<String, Object> reset(@RequestBody(required = false) Map<String, Object> request) {
+        String sid = sessionHelper.currentSid();
         Map<String, Object> response = new HashMap<>();
         try {
             if (request != null && request.containsKey("offset")) {
                 long offset = ((Number) request.get("offset")).longValue();
-                replayService.resetToOffset(offset);
+                replayService.resetToOffset(sid, offset);
                 response.put("success", true);
                 response.put("resetTo", offset);
             } else {
-                Map<String, Object> result = replayService.resetToBeginning();
+                Map<String, Object> result = replayService.resetToBeginning(sid);
                 response.putAll(result);
             }
         } catch (Exception e) {
@@ -92,9 +100,10 @@ public class ReplayController {
     @PostMapping("/clear")
     @ResponseBody
     public Map<String, Object> clear() {
+        String sid = sessionHelper.currentSid();
         Map<String, Object> response = new HashMap<>();
         try {
-            replayService.clearTopic();
+            replayService.clearTopic(sid);
             response.put("success", true);
         } catch (Exception e) {
             response.put("success", false);
@@ -106,15 +115,17 @@ public class ReplayController {
     @GetMapping("/status")
     @ResponseBody
     public Map<String, Object> status() {
-        return replayService.getStatus();
+        return replayService.getStatus(sessionHelper.currentSid());
     }
 
-    // ===== Practice mode endpoints =====
+    // ===== Practice mode =====
 
     @GetMapping("/practice/topics")
     @ResponseBody
     public Set<String> practiceTopics() {
-        return practiceService.listTopics();
+        Set<String> topics = practiceService.listTopics();
+        topics.retainAll(sessionHelper.currentUserTopics());
+        return topics;
     }
 
     @GetMapping("/practice/groups")
@@ -126,78 +137,75 @@ public class ReplayController {
     @PostMapping("/practice/create-topic")
     @ResponseBody
     public Map<String, Object> practiceCreateTopic(@RequestBody Map<String, Object> request) {
-        String topic = (String) request.getOrDefault("topic", "");
-        return practiceService.createTopic(topic);
+        String topicName = (String) request.getOrDefault("topic", "");
+        Map<String, Object> result = practiceService.createTopic(topicName);
+        if (result.containsKey("success") && Boolean.TRUE.equals(result.get("success"))) {
+            resourceRepository.save(UserResource.builder()
+                    .resourceType("TOPIC")
+                    .resourceName(topicName.trim())
+                    .ownerSid(sessionHelper.currentSid())
+                    .build());
+        }
+        return result;
     }
 
     @PostMapping("/practice/session")
     @ResponseBody
     public Map<String, Object> practiceStartSession(@RequestBody Map<String, Object> request) {
-        String topic = (String) request.getOrDefault("topic", "");
-        return practiceService.startSession(topic);
+        return practiceService.startSession(sessionHelper.currentSid(), (String) request.getOrDefault("topic", ""));
     }
 
     @PostMapping("/practice/end")
     @ResponseBody
     public Map<String, Object> practiceEndSession() {
-        return practiceService.endSession();
+        return practiceService.endSession(sessionHelper.currentSid());
     }
 
     @PostMapping("/practice/add-consumer")
     @ResponseBody
     public Map<String, Object> practiceAddConsumer(@RequestBody Map<String, Object> request) {
-        String group = (String) request.getOrDefault("group", "");
-        return practiceService.addConsumer(group);
+        return practiceService.addConsumer(sessionHelper.currentSid(), (String) request.getOrDefault("group", ""));
     }
 
     @PostMapping("/practice/remove-consumer")
     @ResponseBody
     public Map<String, Object> practiceRemoveConsumer(@RequestBody Map<String, Object> request) {
-        String group = (String) request.getOrDefault("group", "");
-        return practiceService.removeConsumer(group);
+        return practiceService.removeConsumer(sessionHelper.currentSid(), (String) request.getOrDefault("group", ""));
     }
 
     @PostMapping("/practice/send")
     @ResponseBody
     public Map<String, Object> practiceSend(@RequestBody Map<String, Object> request) {
-        Map<String, Object> response = new HashMap<>();
-        try {
-            String customMessage = (String) request.get("customMessage");
-            if (customMessage != null && !customMessage.isBlank()) {
-                return practiceService.sendCustomMessage(customMessage);
-            } else {
-                int count = request.containsKey("count") ? ((Number) request.get("count")).intValue() : 5;
-                return practiceService.sendMessages(count);
-            }
-        } catch (Exception e) {
-            response.put("success", false);
-            response.put("error", e.getMessage());
+        String sid = sessionHelper.currentSid();
+        String customMessage = (String) request.get("customMessage");
+        if (customMessage != null && !customMessage.isBlank()) {
+            return practiceService.sendCustomMessage(sid, customMessage);
         }
-        return response;
+        int count = request.containsKey("count") ? ((Number) request.get("count")).intValue() : 5;
+        return practiceService.sendMessages(sid, count);
     }
 
     @PostMapping("/practice/read")
     @ResponseBody
     public Map<String, Object> practiceRead(@RequestBody Map<String, Object> request) {
-        String group = (String) request.getOrDefault("group", "");
-        String mode = (String) request.getOrDefault("mode", "all");
-        return practiceService.readMessages(group, mode);
+        String sid = sessionHelper.currentSid();
+        return practiceService.readMessages(sid, (String) request.getOrDefault("group", ""), (String) request.getOrDefault("mode", "all"));
     }
 
     @PostMapping("/practice/reset")
     @ResponseBody
     public Map<String, Object> practiceReset(@RequestBody Map<String, Object> request) {
+        String sid = sessionHelper.currentSid();
         String group = (String) request.getOrDefault("group", "");
         if (request.containsKey("offset")) {
-            long offset = ((Number) request.get("offset")).longValue();
-            return practiceService.resetToOffset(group, offset);
+            return practiceService.resetToOffset(sid, group, ((Number) request.get("offset")).longValue());
         }
-        return practiceService.resetToBeginning(group);
+        return practiceService.resetToBeginning(sid, group);
     }
 
     @GetMapping("/practice/status")
     @ResponseBody
     public Map<String, Object> practiceStatus() {
-        return practiceService.getStatus();
+        return practiceService.getStatus(sessionHelper.currentSid());
     }
 }

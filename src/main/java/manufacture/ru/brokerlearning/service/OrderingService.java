@@ -15,20 +15,20 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Service
 @Slf4j
 public class OrderingService {
 
-    private static final String TOPIC_1P = "ordering-1p-topic";
-    private static final String TOPIC_5P = "ordering-5p-topic";
+    private static final String TOPIC_1P_PREFIX = "ordering-1p-";
+    private static final String TOPIC_5P_PREFIX = "ordering-5p-";
 
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final String bootstrapServers;
 
-    @Getter
-    private volatile Map<String, Object> lastResult;
+    private final ConcurrentHashMap<String, Map<String, Object>> lastResults = new ConcurrentHashMap<>();
 
     public OrderingService(KafkaTemplate<String, String> kafkaTemplate,
                            org.springframework.kafka.core.KafkaAdmin kafkaAdmin) {
@@ -37,27 +37,28 @@ public class OrderingService {
         this.bootstrapServers = bs instanceof String ? (String) bs : String.join(",", (java.util.Collection<String>) bs);
     }
 
-    /**
-     * Демо 1: БЕЗ ключа (null key) — round-robin распределение.
-     * 1 партиция → порядок сохранён.
-     * 5 партиций → глобальный порядок НАРУШЕН (но внутри каждой партиции — сохранён).
-     */
-    public Map<String, Object> runDemo(int count) {
-        resetTopics();
+    private String topic1p(String sid) { return TOPIC_1P_PREFIX + sid; }
+    private String topic5p(String sid) { return TOPIC_5P_PREFIX + sid; }
+
+    public Map<String, Object> getLastResult(String sid) {
+        return lastResults.get(sid);
+    }
+
+    public Map<String, Object> runDemo(String sid, int count) {
+        resetTopics(sid);
 
         List<Map<String, Object>> sentMessages = new ArrayList<>();
         for (int i = 1; i <= count; i++) {
             String value = "Сообщение #" + i;
-            kafkaTemplate.send(TOPIC_1P, null, value);
-            // Явный round-robin по партициям (sticky partitioner иначе кладёт всё в одну)
+            kafkaTemplate.send(topic1p(sid), null, value);
             int partition = (i - 1) % 5;
-            kafkaTemplate.send(TOPIC_5P, partition, null, value);
+            kafkaTemplate.send(topic5p(sid), partition, null, value);
             sentMessages.add(Map.of("number", i, "value", value));
         }
         kafkaTemplate.flush();
 
-        List<Map<String, Object>> result1p = readFromBeginning(TOPIC_1P, count);
-        List<Map<String, Object>> result5p = readFromBeginning(TOPIC_5P, count);
+        List<Map<String, Object>> result1p = readFromBeginning(topic1p(sid), count);
+        List<Map<String, Object>> result5p = readFromBeginning(topic5p(sid), count);
 
         Map<Integer, List<Map<String, Object>>> byPartition1p = groupByPartition(result1p);
         Map<Integer, List<Map<String, Object>>> byPartition5p = groupByPartition(result5p);
@@ -77,30 +78,25 @@ public class OrderingService {
         result.put("orderedGlobal5p", orderedGlobal5p);
         result.put("orderedPerPartition", orderedPerPartition);
 
-        lastResult = result;
+        lastResults.put(sid, result);
         return result;
     }
 
-    /**
-     * Демо 2: С ключами — каждый ключ всегда в одной партиции.
-     * Порядок внутри ключа ГАРАНТИРОВАН.
-     */
-    public Map<String, Object> runMultiKeyDemo(int countPerKey, List<String> keys) {
-        resetTopics();
+    public Map<String, Object> runMultiKeyDemo(String sid, int countPerKey, List<String> keys) {
+        resetTopics(sid);
 
         int totalExpected = countPerKey * keys.size();
         List<Map<String, Object>> sentMessages = new ArrayList<>();
         for (int round = 1; round <= countPerKey; round++) {
             for (String key : keys) {
                 String value = key + " #" + round;
-                kafkaTemplate.send(TOPIC_5P, key, value);
+                kafkaTemplate.send(topic5p(sid), key, value);
                 sentMessages.add(Map.of("number", round, "key", key, "value", value));
             }
         }
         kafkaTemplate.flush();
 
-        List<Map<String, Object>> result5p = readFromBeginning(TOPIC_5P, totalExpected);
-
+        List<Map<String, Object>> result5p = readFromBeginning(topic5p(sid), totalExpected);
         Map<Integer, List<Map<String, Object>>> byPartition = groupByPartition(result5p);
 
         Map<String, List<Map<String, Object>>> byKey = new LinkedHashMap<>();
@@ -109,13 +105,10 @@ public class OrderingService {
             byKey.computeIfAbsent(k, x -> new ArrayList<>()).add(msg);
         }
 
-        // Какой ключ в какую партицию попал
         Map<String, Integer> keyToPartition = new LinkedHashMap<>();
         for (Map<String, Object> msg : result5p) {
             String k = (String) msg.get("key");
-            if (!keyToPartition.containsKey(k)) {
-                keyToPartition.put(k, (int) msg.get("partition"));
-            }
+            if (!keyToPartition.containsKey(k)) keyToPartition.put(k, (int) msg.get("partition"));
         }
 
         boolean orderedPerKey = byKey.values().stream().allMatch(this::isOrdered);
@@ -130,30 +123,37 @@ public class OrderingService {
         result.put("keyToPartition", keyToPartition);
         result.put("orderedPerKey", orderedPerKey);
 
-        lastResult = result;
+        lastResults.put(sid, result);
         return result;
     }
 
-    private void resetTopics() {
+    public void cleanupSession(String sid) {
+        lastResults.remove(sid);
+        Properties props = new Properties();
+        props.put("bootstrap.servers", bootstrapServers);
+        try (AdminClient admin = AdminClient.create(props)) {
+            List<String> toDelete = List.of(topic1p(sid), topic5p(sid));
+            admin.deleteTopics(toDelete).all().get();
+        } catch (Exception ignored) {}
+    }
+
+    private void resetTopics(String sid) {
         Properties props = new Properties();
         props.put("bootstrap.servers", bootstrapServers);
         try (AdminClient admin = AdminClient.create(props)) {
             Set<String> existing = admin.listTopics().names().get();
-
             List<String> toDelete = new ArrayList<>();
-            if (existing.contains(TOPIC_1P)) toDelete.add(TOPIC_1P);
-            if (existing.contains(TOPIC_5P)) toDelete.add(TOPIC_5P);
+            if (existing.contains(topic1p(sid))) toDelete.add(topic1p(sid));
+            if (existing.contains(topic5p(sid))) toDelete.add(topic5p(sid));
             if (!toDelete.isEmpty()) {
                 admin.deleteTopics(toDelete).all().get();
                 Thread.sleep(500);
             }
-
             admin.createTopics(List.of(
-                    new NewTopic(TOPIC_1P, 1, (short) 1),
-                    new NewTopic(TOPIC_5P, 5, (short) 1)
+                    new NewTopic(topic1p(sid), 1, (short) 1),
+                    new NewTopic(topic5p(sid), 5, (short) 1)
             )).all().get();
             Thread.sleep(500);
-
         } catch (Exception e) {
             log.warn("Failed to reset topics: {}", e.getMessage());
         }
@@ -167,7 +167,6 @@ public class OrderingService {
         props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, "500");
 
         List<Map<String, Object>> messages = new ArrayList<>();
-
         try (KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props)) {
             List<TopicPartition> partitions = consumer.partitionsFor(topic).stream()
                     .map(pi -> new TopicPartition(pi.topic(), pi.partition()))
@@ -190,15 +189,13 @@ public class OrderingService {
                 }
             }
         }
-
         return messages;
     }
 
     private Map<Integer, List<Map<String, Object>>> groupByPartition(List<Map<String, Object>> messages) {
         Map<Integer, List<Map<String, Object>>> result = new LinkedHashMap<>();
         for (Map<String, Object> msg : messages) {
-            int p = (int) msg.get("partition");
-            result.computeIfAbsent(p, k -> new ArrayList<>()).add(msg);
+            result.computeIfAbsent((int) msg.get("partition"), k -> new ArrayList<>()).add(msg);
         }
         return result;
     }
@@ -207,20 +204,15 @@ public class OrderingService {
         if (value == null) return 0;
         int idx = value.lastIndexOf('#');
         if (idx >= 0 && idx < value.length() - 1) {
-            try {
-                return Integer.parseInt(value.substring(idx + 1).trim());
-            } catch (NumberFormatException e) {
-                return 0;
-            }
+            try { return Integer.parseInt(value.substring(idx + 1).trim()); }
+            catch (NumberFormatException e) { return 0; }
         }
         return 0;
     }
 
     private boolean isOrdered(List<Map<String, Object>> messages) {
         for (int i = 1; i < messages.size(); i++) {
-            int prev = (int) messages.get(i - 1).get("number");
-            int curr = (int) messages.get(i).get("number");
-            if (curr < prev) return false;
+            if ((int) messages.get(i).get("number") < (int) messages.get(i - 1).get("number")) return false;
         }
         return true;
     }

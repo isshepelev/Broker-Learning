@@ -2,35 +2,16 @@ package manufacture.ru.brokerlearning.config;
 
 import java.util.Set;
 
-/**
- * Реестр внутренних топиков и consumer-групп приложения.
- * Используется для скрытия системных ресурсов от пользователя.
- */
 public final class InternalKafkaRegistry {
 
     private InternalKafkaRegistry() {}
 
-    /** Топики, созданные приложением для демонстраций и сервисов */
+    /** Топики, созданные приложением (глобальные, не per-user) */
     public static final Set<String> INTERNAL_TOPICS = Set.of(
             "learning-topic",
-            "metrics-topic",
             "orders-topic",
-            "benchmark-topic",
-            "replay-topic",
-            "compare-topic",
             "dlq-compare-topic",
-            "dlq-compare-topic.DLT",
-            "at-most-once-topic",
-            "at-least-once-topic",
-            "exactly-once-topic",
-            "ordering-1p-topic",
-            "ordering-5p-topic",
-            "rebalancing-topic",
-            "compression-none",
-            "compression-gzip",
-            "compression-snappy",
-            "compression-lz4",
-            "compression-zstd"
+            "dlq-compare-topic.DLT"
     );
 
     /** Consumer-группы, созданные приложением */
@@ -43,14 +24,22 @@ public final class InternalKafkaRegistry {
             "manual-ack-group",
             "filtered-group",
             "error-handler-group",
-            "dlq-compare-group",
-            "job-consumer-group",
-            "replay-demo-group",
-            "rebalancing-demo-group"
+            "dlq-compare-group"
     );
 
-    /** Префиксы Kafka-внутренних топиков */
-    private static final Set<String> KAFKA_INTERNAL_PREFIXES = Set.of("__");
+    /** Префиксы per-user и системных топиков/групп */
+    private static final Set<String> KAFKA_INTERNAL_PREFIXES = Set.of(
+            "__",
+            "replay-topic-", "replay-group-",
+            "_practice-status-", "_topic-detail-reader-",
+            "rebalancing-topic-", "rebalancing-group-",
+            "ordering-1p-", "ordering-5p-",
+            "compare-topic-",
+            "compression-",
+            "metrics-topic-", "job-consumer-group-",
+            "at-most-once-", "at-least-once-", "exactly-once-",
+            "benchmark-topic-"
+    );
 
     public static boolean isInternalTopic(String topic) {
         if (topic == null) return true;
@@ -62,6 +51,9 @@ public final class InternalKafkaRegistry {
 
     public static boolean isInternalGroup(String groupId) {
         if (groupId == null) return true;
+        for (String prefix : KAFKA_INTERNAL_PREFIXES) {
+            if (groupId.startsWith(prefix)) return true;
+        }
         return INTERNAL_GROUPS.contains(groupId);
     }
 

@@ -1,6 +1,8 @@
 package manufacture.ru.brokerlearning.controller;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import manufacture.ru.brokerlearning.config.UserSessionHelper;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.admin.RecordsToDelete;
@@ -25,12 +27,15 @@ import java.util.stream.Collectors;
 @Controller
 @RequestMapping("/compression")
 @Slf4j
+@RequiredArgsConstructor
 public class CompressionController {
 
     private static final String TOPIC_PREFIX = "compression-";
 
     @Value("${spring.kafka.bootstrap-servers}")
     private String bootstrapServers;
+
+    private final UserSessionHelper sessionHelper;
 
     @GetMapping("")
     public String page(Model model) {
@@ -82,7 +87,8 @@ public class CompressionController {
 
     private Map<String, Object> benchCompression(String codec, String label, String color,
                                                   String description, int count, String message) throws Exception {
-        String topic = TOPIC_PREFIX + codec;
+        String sid = sessionHelper.currentSid();
+        String topic = TOPIC_PREFIX + sid + "-" + codec;
 
         // Создаём топик
         ensureTopic(topic);

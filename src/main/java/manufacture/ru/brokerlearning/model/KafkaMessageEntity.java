@@ -43,4 +43,6 @@ public class KafkaMessageEntity {
     private LocalDateTime timestamp;
 
     private String groupId;
+
+    private String ownerSid;
 }

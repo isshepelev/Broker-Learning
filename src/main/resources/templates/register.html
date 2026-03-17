@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Broker Learning - Регистрация')}"></head>
+<body style="background:var(--c-bg);">
+<div style="max-width:400px;margin:80px auto;padding:0 20px;">
+    <div class="card">
+        <div class="card-body p-4">
+            <h3 style="text-align:center;margin-bottom:24px;color:var(--c-primary);font-weight:700;">Broker Learning</h3>
+            <h5 style="text-align:center;margin-bottom:20px;">Регистрация</h5>
+
+            <div th:if="${error}" class="alert alert-danger py-2" style="font-size:.85rem;" th:text="${error}"></div>
+
+            <form th:action="@{/register}" method="post">
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Логин</label>
+                    <input type="text" name="username" class="form-control" required autofocus placeholder="username" minlength="2" maxlength="30">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Пароль</label>
+                    <input type="password" name="password" class="form-control" required placeholder="password" minlength="3">
+                </div>
+                <button type="submit" class="btn btn-primary-custom w-100" style="padding:10px;">Зарегистрироваться</button>
+            </form>
+            <div class="text-center mt-3" style="font-size:.85rem;">
+                Уже есть аккаунт? <a th:href="@{/login}" style="color:var(--c-primary);font-weight:600;">Войти</a>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>

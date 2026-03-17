@@ -2,6 +2,7 @@ package manufacture.ru.brokerlearning.controller;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import manufacture.ru.brokerlearning.config.UserSessionHelper;
 import manufacture.ru.brokerlearning.job.JobManagementService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
@@ -18,10 +19,11 @@ import java.util.Map;
 public class JobController {
 
     private final JobManagementService jobService;
+    private final UserSessionHelper sessionHelper;
 
     @GetMapping("")
     public String jobsPage(Model model) {
-        model.addAttribute("statuses", jobService.getJobStatuses());
+        model.addAttribute("statuses", jobService.getJobStatuses(sessionHelper.currentSid()));
         model.addAttribute("currentPage", "jobs");
         return "jobs";
     }
@@ -31,14 +33,13 @@ public class JobController {
     public ResponseEntity<Map<String, Object>> startProducerJob() {
         Map<String, Object> response = new HashMap<>();
         try {
-            jobService.startProducerJob();
+            jobService.startProducerJob(sessionHelper.currentSid());
             response.put("success", true);
             response.put("message", "Producer job started");
             return ResponseEntity.ok(response);
         } catch (Exception e) {
-            log.error("Failed to start producer job: {}", e.getMessage(), e);
             response.put("success", false);
-            response.put("error", "Failed to start producer job: " + e.getMessage());
+            response.put("error", e.getMessage());
             return ResponseEntity.internalServerError().body(response);
         }
     }
@@ -48,14 +49,13 @@ public class JobController {
     public ResponseEntity<Map<String, Object>> stopProducerJob() {
         Map<String, Object> response = new HashMap<>();
         try {
-            jobService.stopProducerJob();
+            jobService.stopProducerJob(sessionHelper.currentSid());
             response.put("success", true);
             response.put("message", "Producer job stopped");
             return ResponseEntity.ok(response);
         } catch (Exception e) {
-            log.error("Failed to stop producer job: {}", e.getMessage(), e);
             response.put("success", false);
-            response.put("error", "Failed to stop producer job: " + e.getMessage());
+            response.put("error", e.getMessage());
             return ResponseEntity.internalServerError().body(response);
         }
     }
@@ -65,14 +65,13 @@ public class JobController {
     public ResponseEntity<Map<String, Object>> startConsumerJob() {
         Map<String, Object> response = new HashMap<>();
         try {
-            jobService.startConsumerJob();
+            jobService.startConsumerJob(sessionHelper.currentSid());
             response.put("success", true);
             response.put("message", "Consumer job started");
             return ResponseEntity.ok(response);
         } catch (Exception e) {
-            log.error("Failed to start consumer job: {}", e.getMessage(), e);
             response.put("success", false);
-            response.put("error", "Failed to start consumer job: " + e.getMessage());
+            response.put("error", e.getMessage());
             return ResponseEntity.internalServerError().body(response);
         }
     }
@@ -82,14 +81,13 @@ public class JobController {
     public ResponseEntity<Map<String, Object>> stopConsumerJob() {
         Map<String, Object> response = new HashMap<>();
         try {
-            jobService.stopConsumerJob();
+            jobService.stopConsumerJob(sessionHelper.currentSid());
             response.put("success", true);
             response.put("message", "Consumer job stopped");
             return ResponseEntity.ok(response);
         } catch (Exception e) {
-            log.error("Failed to stop consumer job: {}", e.getMessage(), e);
             response.put("success", false);
-            response.put("error", "Failed to stop consumer job: " + e.getMessage());
+            response.put("error", e.getMessage());
             return ResponseEntity.internalServerError().body(response);
         }
     }
@@ -100,12 +98,11 @@ public class JobController {
         Map<String, Object> response = new HashMap<>();
         try {
             response.put("success", true);
-            response.putAll(jobService.getJobStatuses());
+            response.putAll(jobService.getJobStatuses(sessionHelper.currentSid()));
             return ResponseEntity.ok(response);
         } catch (Exception e) {
-            log.error("Failed to get job statuses: {}", e.getMessage(), e);
             response.put("success", false);
-            response.put("error", "Failed to get job statuses: " + e.getMessage());
+            response.put("error", e.getMessage());
             return ResponseEntity.internalServerError().body(response);
         }
     }

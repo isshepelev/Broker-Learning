@@ -2,6 +2,7 @@ package manufacture.ru.brokerlearning.controller;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import manufacture.ru.brokerlearning.config.UserSessionHelper;
 import manufacture.ru.brokerlearning.delivery.AtLeastOnceService;
 import manufacture.ru.brokerlearning.delivery.AtMostOnceService;
 import manufacture.ru.brokerlearning.delivery.ExactlyOnceService;
@@ -22,6 +23,7 @@ public class DeliverySemanticsController {
     private final AtMostOnceService atMostOnceService;
     private final AtLeastOnceService atLeastOnceService;
     private final ExactlyOnceService exactlyOnceService;
+    private final UserSessionHelper sessionHelper;
 
     @GetMapping("")
     public String deliverySemanticsPage(Model model) {
@@ -31,16 +33,13 @@ public class DeliverySemanticsController {
 
     @PostMapping("/at-most-once")
     @ResponseBody
-    public ResponseEntity<Map<String, Object>> demonstrateAtMostOnce(
-            @RequestParam(defaultValue = "10") int count) {
+    public ResponseEntity<Map<String, Object>> demonstrateAtMostOnce(@RequestParam(defaultValue = "10") int count) {
         Map<String, Object> response = new HashMap<>();
         try {
-            Map<String, Object> result = atMostOnceService.demonstrate(count);
             response.put("success", true);
-            response.putAll(result);
+            response.putAll(atMostOnceService.demonstrate(sessionHelper.currentSid(), count));
             return ResponseEntity.ok(response);
         } catch (Exception e) {
-            log.error("At-most-once demonstration failed: {}", e.getMessage(), e);
             response.put("success", false);
             response.put("error", "Demonstration failed: " + e.getMessage());
             return ResponseEntity.internalServerError().body(response);
@@ -49,16 +48,13 @@ public class DeliverySemanticsController {
 
     @PostMapping("/at-least-once")
     @ResponseBody
-    public ResponseEntity<Map<String, Object>> demonstrateAtLeastOnce(
-            @RequestParam(defaultValue = "10") int count) {
+    public ResponseEntity<Map<String, Object>> demonstrateAtLeastOnce(@RequestParam(defaultValue = "10") int count) {
         Map<String, Object> response = new HashMap<>();
         try {
-            Map<String, Object> result = atLeastOnceService.demonstrate(count);
             response.put("success", true);
-            response.putAll(result);
+            response.putAll(atLeastOnceService.demonstrate(sessionHelper.currentSid(), count));
             return ResponseEntity.ok(response);
         } catch (Exception e) {
-            log.error("At-least-once demonstration failed: {}", e.getMessage(), e);
             response.put("success", false);
             response.put("error", "Demonstration failed: " + e.getMessage());
             return ResponseEntity.internalServerError().body(response);
@@ -67,16 +63,13 @@ public class DeliverySemanticsController {
 
     @PostMapping("/exactly-once")
     @ResponseBody
-    public ResponseEntity<Map<String, Object>> demonstrateExactlyOnce(
-            @RequestParam(defaultValue = "10") int count) {
+    public ResponseEntity<Map<String, Object>> demonstrateExactlyOnce(@RequestParam(defaultValue = "10") int count) {
         Map<String, Object> response = new HashMap<>();
         try {
-            Map<String, Object> result = exactlyOnceService.demonstrate(count);
             response.put("success", true);
-            response.putAll(result);
+            response.putAll(exactlyOnceService.demonstrate(sessionHelper.currentSid(), count));
             return ResponseEntity.ok(response);
         } catch (Exception e) {
-            log.error("Exactly-once demonstration failed: {}", e.getMessage(), e);
             response.put("success", false);
             response.put("error", "Demonstration failed: " + e.getMessage());
             return ResponseEntity.internalServerError().body(response);

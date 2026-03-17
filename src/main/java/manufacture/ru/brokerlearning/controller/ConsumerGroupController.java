@@ -2,6 +2,8 @@ package manufacture.ru.brokerlearning.controller;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import manufacture.ru.brokerlearning.config.UserSessionHelper;
+import manufacture.ru.brokerlearning.repository.UserResourceRepository;
 import org.apache.kafka.clients.admin.*;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
@@ -21,6 +23,8 @@ import java.util.stream.Collectors;
 public class ConsumerGroupController {
 
     private final AdminClient adminClient;
+    private final UserSessionHelper sessionHelper;
+    private final UserResourceRepository resourceRepository;
 
     @GetMapping("")
     public String consumerGroupsPage(Model model) {
@@ -32,10 +36,13 @@ public class ConsumerGroupController {
     @ResponseBody
     public List<Map<String, Object>> listGroups() {
         try {
+            String sid = sessionHelper.currentSid();
+            Set<String> userGroups = resourceRepository.groupNamesForUser(sid);
+
             var listings = adminClient.listConsumerGroups().all().get();
             var groupIds = listings.stream()
                     .map(ConsumerGroupListing::groupId)
-                    .filter(InternalKafkaRegistry::isUserGroup)
+                    .filter(g -> InternalKafkaRegistry.isUserGroup(g) && userGroups.contains(g))
                     .collect(Collectors.toList());
 
             if (groupIds.isEmpty()) return Collections.emptyList();
@@ -68,20 +75,17 @@ public class ConsumerGroupController {
         result.put("groupId", groupId);
 
         try {
-            // Описание группы
             var desc = adminClient.describeConsumerGroups(List.of(groupId)).all().get().get(groupId);
             result.put("state", desc.state().toString());
             result.put("partitionAssignor", desc.partitionAssignor());
             result.put("coordinator", desc.coordinator().host() + ":" + desc.coordinator().port());
 
-            // Участники и их назначения
             List<Map<String, Object>> members = new ArrayList<>();
             for (var member : desc.members()) {
                 Map<String, Object> m = new LinkedHashMap<>();
                 m.put("memberId", shorten(member.consumerId()));
                 m.put("clientId", member.clientId());
                 m.put("host", member.host());
-
                 List<String> partitions = member.assignment().topicPartitions().stream()
                         .map(tp -> tp.topic() + "-" + tp.partition())
                         .sorted()
@@ -92,11 +96,9 @@ public class ConsumerGroupController {
             }
             result.put("members", members);
 
-            // Offset'ы и lag
             var offsets = adminClient.listConsumerGroupOffsets(groupId)
                     .partitionsToOffsetAndMetadata().get();
 
-            // End offsets для расчёта lag
             Set<TopicPartition> tps = offsets.keySet();
             Map<TopicPartition, ListOffsetsResult.ListOffsetsResultInfo> endOffsets = new HashMap<>();
             if (!tps.isEmpty()) {
@@ -111,12 +113,10 @@ public class ConsumerGroupController {
                 TopicPartition tp = entry.getKey();
                 OffsetAndMetadata oam = entry.getValue();
                 if (oam == null) continue;
-
                 long currentOffset = oam.offset();
                 long endOffset = endOffsets.containsKey(tp) ? endOffsets.get(tp).offset() : currentOffset;
                 long lag = Math.max(0, endOffset - currentOffset);
                 totalLag += lag;
-
                 Map<String, Object> o = new LinkedHashMap<>();
                 o.put("topic", tp.topic());
                 o.put("partition", tp.partition());
@@ -127,7 +127,6 @@ public class ConsumerGroupController {
             }
             offsetList.sort(Comparator.comparing((Map<String, Object> m) -> (String) m.get("topic"))
                     .thenComparingInt(m -> (int) m.get("partition")));
-
             result.put("offsets", offsetList);
             result.put("totalLag", totalLag);
 
@@ -135,7 +134,6 @@ public class ConsumerGroupController {
             log.error("Failed to describe group {}: {}", groupId, e.getMessage());
             result.put("error", e.getMessage());
         }
-
         return result;
     }
 

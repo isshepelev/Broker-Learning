@@ -3,8 +3,7 @@ package manufacture.ru.brokerlearning.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import manufacture.ru.brokerlearning.model.KafkaMessageEntity;
-import manufacture.ru.brokerlearning.repository.KafkaMessageRepository;
-import manufacture.ru.brokerlearning.config.InternalKafkaRegistry;
+import manufacture.ru.brokerlearning.repository.UserResourceRepository;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.ConsumerGroupListing;
 import org.apache.kafka.clients.admin.ListOffsetsResult;
@@ -24,34 +23,27 @@ import java.util.stream.Collectors;
 public class MonitoringService {
 
     private final AdminClient adminClient;
-    private final KafkaMessageRepository messageRepository;
+    private final MessageHistoryService historyService;
+    private final UserResourceRepository resourceRepository;
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm:ss");
 
-    /**
-     * Сообщений за последние N минут, сгруппированные по 10-секундным интервалам.
-     * Всегда возвращает ровно (minutes * 6) слотов, привязанных к "круглым" 10-секундным меткам.
-     */
-    public Map<String, Object> getMessageThroughput(int minutes) {
+    public Map<String, Object> getMessageThroughput(String sid, int minutes) {
         LocalDateTime now = LocalDateTime.now();
-        int totalSlots = minutes * 6; // 6 слотов по 10 сек в минуте
+        int totalSlots = minutes * 6;
 
-        // Начало первого слота: округляем now вниз до 10 сек и отступаем назад
         int nowSec = now.getSecond();
         int roundedSec = (nowSec / 10) * 10;
         LocalDateTime currentSlot = now.withSecond(roundedSec).withNano(0);
         LocalDateTime firstSlot = currentSlot.minusSeconds((long)(totalSlots - 1) * 10);
 
-        // Создаём все слоты
         List<LocalDateTime> slots = new ArrayList<>();
         for (int i = 0; i < totalSlots; i++) {
             slots.add(firstSlot.plusSeconds((long) i * 10));
         }
 
-        // Загружаем сообщения
-        List<KafkaMessageEntity> messages = messageRepository.findByTimestampAfterOrderByTimestampAsc(firstSlot);
+        List<KafkaMessageEntity> messages = historyService.getMessagesSince(sid, firstSlot);
 
-        // Считаем по слотам
-        int[][] counts = new int[totalSlots][2]; // [sent, received]
+        int[][] counts = new int[totalSlots][2];
         for (KafkaMessageEntity msg : messages) {
             if (msg.getTimestamp() == null) continue;
             int msgSec = msg.getTimestamp().getSecond();
@@ -83,34 +75,27 @@ public class MonitoringService {
         return result;
     }
 
-    /**
-     * Lag по каждому consumer group
-     */
-    public List<Map<String, Object>> getConsumerGroupLags() {
+    public List<Map<String, Object>> getConsumerGroupLags(String sid) {
+        Set<String> userGroups = resourceRepository.groupNamesForUser(sid);
         List<Map<String, Object>> result = new ArrayList<>();
         try {
             Collection<ConsumerGroupListing> groups = adminClient.listConsumerGroups().all().get();
 
             for (ConsumerGroupListing group : groups) {
                 String groupId = group.groupId();
-                if (InternalKafkaRegistry.isInternalGroup(groupId)) continue;
+                if (!userGroups.contains(groupId)) continue;
                 try {
                     Map<TopicPartition, OffsetAndMetadata> offsets =
                             adminClient.listConsumerGroupOffsets(groupId)
                                     .partitionsToOffsetAndMetadata().get();
-
                     if (offsets.isEmpty()) continue;
 
-                    // Получаем end offsets
                     Map<TopicPartition, OffsetSpec> request = offsets.keySet().stream()
                             .collect(Collectors.toMap(tp -> tp, tp -> OffsetSpec.latest()));
                     Map<TopicPartition, ListOffsetsResult.ListOffsetsResultInfo> endOffsets =
                             adminClient.listOffsets(request).all().get();
 
-                    long totalLag = 0;
-                    long totalCommitted = 0;
-                    long totalEnd = 0;
-
+                    long totalLag = 0, totalCommitted = 0, totalEnd = 0;
                     for (Map.Entry<TopicPartition, OffsetAndMetadata> entry : offsets.entrySet()) {
                         long committed = entry.getValue().offset();
                         ListOffsetsResult.ListOffsetsResultInfo endInfo = endOffsets.get(entry.getKey());
@@ -134,21 +119,18 @@ public class MonitoringService {
         } catch (Exception e) {
             log.error("Failed to get consumer group lags: {}", e.getMessage());
         }
-
         result.sort((a, b) -> Long.compare((long) b.get("lag"), (long) a.get("lag")));
         return result;
     }
 
-    /**
-     * Размеры topic-ов (сумма end offset по всем partitions)
-     */
-    public List<Map<String, Object>> getTopicSizes() {
+    public List<Map<String, Object>> getTopicSizes(String sid) {
+        Set<String> userTopics = resourceRepository.topicNamesForUser(sid);
         List<Map<String, Object>> result = new ArrayList<>();
         try {
             Set<String> topics = adminClient.listTopics().names().get();
 
             for (String topic : topics) {
-                if (InternalKafkaRegistry.isInternalTopic(topic)) continue;
+                if (!userTopics.contains(topic)) continue;
                 try {
                     var desc = adminClient.describeTopics(Collections.singletonList(topic))
                             .topicNameValues().get(topic).get();
@@ -157,13 +139,11 @@ public class MonitoringService {
                     for (var p : desc.partitions()) {
                         request.put(new TopicPartition(topic, p.partition()), OffsetSpec.latest());
                     }
-
                     Map<TopicPartition, ListOffsetsResult.ListOffsetsResultInfo> endOffsets =
                             adminClient.listOffsets(request).all().get();
 
                     long totalMessages = endOffsets.values().stream()
-                            .mapToLong(ListOffsetsResult.ListOffsetsResultInfo::offset)
-                            .sum();
+                            .mapToLong(ListOffsetsResult.ListOffsetsResultInfo::offset).sum();
 
                     Map<String, Object> info = new HashMap<>();
                     info.put("topic", topic);
@@ -177,36 +157,22 @@ public class MonitoringService {
         } catch (Exception e) {
             log.error("Failed to get topic sizes: {}", e.getMessage());
         }
-
         result.sort((a, b) -> Long.compare((long) b.get("totalMessages"), (long) a.get("totalMessages")));
         return result;
     }
 
-    /**
-     * Общая статистика
-     */
-    public Map<String, Object> getOverallStats() {
+    public Map<String, Object> getOverallStats(String sid) {
         Map<String, Object> stats = new HashMap<>();
-        stats.put("totalSent", messageRepository.countByDirection("SENT"));
-        stats.put("totalReceived", messageRepository.countByDirection("RECEIVED"));
-        stats.put("lastMinute", messageRepository.countByTimestampAfter(LocalDateTime.now().minusMinutes(1)));
-        stats.put("last5Minutes", messageRepository.countByTimestampAfter(LocalDateTime.now().minusMinutes(5)));
+        stats.put("totalSent", historyService.countByDirection("SENT", sid));
+        stats.put("totalReceived", historyService.countByDirection("RECEIVED", sid));
+        stats.put("lastMinute", historyService.countSinceTime(sid, LocalDateTime.now().minusMinutes(1)));
+        stats.put("last5Minutes", historyService.countSinceTime(sid, LocalDateTime.now().minusMinutes(5)));
 
-        try {
-            long userTopics = adminClient.listTopics().names().get().stream()
-                    .filter(InternalKafkaRegistry::isUserTopic).count();
-            stats.put("topicsCount", userTopics);
-        } catch (Exception e) {
-            stats.put("topicsCount", 0);
-        }
+        Set<String> userTopics = resourceRepository.topicNamesForUser(sid);
+        stats.put("topicsCount", userTopics.size());
 
-        try {
-            long userGroups = adminClient.listConsumerGroups().all().get().stream()
-                    .filter(g -> InternalKafkaRegistry.isUserGroup(g.groupId())).count();
-            stats.put("consumerGroupsCount", userGroups);
-        } catch (Exception e) {
-            stats.put("consumerGroupsCount", 0);
-        }
+        Set<String> userGroups = resourceRepository.groupNamesForUser(sid);
+        stats.put("consumerGroupsCount", userGroups.size());
 
         return stats;
     }

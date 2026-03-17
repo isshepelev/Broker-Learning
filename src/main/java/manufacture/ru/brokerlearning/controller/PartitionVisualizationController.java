@@ -2,6 +2,7 @@ package manufacture.ru.brokerlearning.controller;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import manufacture.ru.brokerlearning.config.UserSessionHelper;
 import manufacture.ru.brokerlearning.service.KafkaAdminService;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
@@ -12,6 +13,7 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 @Controller
@@ -22,11 +24,14 @@ public class PartitionVisualizationController {
 
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final KafkaAdminService adminService;
+    private final UserSessionHelper sessionHelper;
 
     @GetMapping("")
     public String page(Model model) {
         try {
-            model.addAttribute("topics", adminService.listTopics());
+            Set<String> topics = adminService.listTopics();
+            topics.retainAll(sessionHelper.currentUserTopics());
+            model.addAttribute("topics", topics);
         } catch (Exception e) {
             model.addAttribute("topics", Collections.emptySet());
         }

@@ -8,39 +8,36 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 @Service
 @Slf4j
 public class RealtimeMessageService {
 
-    private final List<SseEmitter> emitters = new CopyOnWriteArrayList<>();
+    /** Per-user SSE emitters: sid → list of emitters */
+    private final ConcurrentHashMap<String, List<SseEmitter>> emittersBySid = new ConcurrentHashMap<>();
 
-    public SseEmitter subscribe() {
+    public SseEmitter subscribe(String sid) {
         SseEmitter emitter = new SseEmitter(5 * 60 * 1000L);
 
-        emitters.add(emitter);
-        log.info("New SSE subscriber added. Total subscribers: {}", emitters.size());
+        List<SseEmitter> list = emittersBySid.computeIfAbsent(sid, k -> new CopyOnWriteArrayList<>());
+        list.add(emitter);
 
-        emitter.onCompletion(() -> {
-            emitters.remove(emitter);
-            log.info("SSE subscriber completed. Total subscribers: {}", emitters.size());
-        });
-
-        emitter.onTimeout(() -> {
-            emitters.remove(emitter);
-            log.info("SSE subscriber timed out. Total subscribers: {}", emitters.size());
-        });
-
-        emitter.onError(e -> {
-            emitters.remove(emitter);
-            log.warn("SSE subscriber error: {}. Total subscribers: {}", e.getMessage(), emitters.size());
-        });
+        emitter.onCompletion(() -> list.remove(emitter));
+        emitter.onTimeout(() -> list.remove(emitter));
+        emitter.onError(e -> list.remove(emitter));
 
         return emitter;
     }
 
-    public void broadcast(ConsumerRecord<String, String> record) {
+    /** Broadcast to a specific user's SSE subscribers */
+    public void broadcast(ConsumerRecord<String, String> record, String ownerSid) {
+        if (ownerSid == null) return;
+
+        List<SseEmitter> list = emittersBySid.get(ownerSid);
+        if (list == null || list.isEmpty()) return;
+
         String message = String.format(
                 "{\"topic\":\"%s\",\"partition\":%d,\"offset\":%d,\"key\":\"%s\",\"value\":\"%s\",\"timestamp\":%d}",
                 record.topic(),
@@ -51,21 +48,14 @@ public class RealtimeMessageService {
                 record.timestamp()
         );
 
-        log.debug("Broadcasting message to {} subscribers: {}", emitters.size(), message);
-
-        List<SseEmitter> deadEmitters = new ArrayList<>();
-
-        for (SseEmitter emitter : emitters) {
+        List<SseEmitter> dead = new ArrayList<>();
+        for (SseEmitter emitter : list) {
             try {
-                emitter.send(SseEmitter.event()
-                        .name("kafka-message")
-                        .data(message));
+                emitter.send(SseEmitter.event().name("kafka-message").data(message));
             } catch (IOException e) {
-                log.warn("Failed to send SSE event, removing emitter: {}", e.getMessage());
-                deadEmitters.add(emitter);
+                dead.add(emitter);
             }
         }
-
-        emitters.removeAll(deadEmitters);
+        list.removeAll(dead);
     }
 }

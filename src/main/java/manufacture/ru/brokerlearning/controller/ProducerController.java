@@ -2,6 +2,7 @@ package manufacture.ru.brokerlearning.controller;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import manufacture.ru.brokerlearning.config.UserSessionHelper;
 import manufacture.ru.brokerlearning.model.MessageDto;
 import manufacture.ru.brokerlearning.producer.CallbackProducer;
 import manufacture.ru.brokerlearning.producer.SimpleProducer;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 @Controller
 @RequestMapping("/producer")
@@ -28,11 +30,14 @@ public class ProducerController {
     private final TransactionalProducer transactionalProducer;
     private final KafkaAdminService adminService;
     private final MessageHistoryService historyService;
+    private final UserSessionHelper sessionHelper;
 
     @GetMapping("")
     public String producerPage(Model model) {
         try {
-            model.addAttribute("topics", adminService.listTopics());
+            Set<String> topics = adminService.listTopics();
+            topics.retainAll(sessionHelper.currentUserTopics());
+            model.addAttribute("topics", topics);
         } catch (Exception e) {
             log.warn("Unable to list topics: {}", e.getMessage());
             model.addAttribute("topics", Collections.emptySet());
@@ -71,7 +76,8 @@ public class ProducerController {
             }
 
             historyService.saveSentMessage(topic, key, value, messageDto.getPartition(),
-                    messageDto.getHeaders() != null ? messageDto.getHeaders().toString() : null);
+                    messageDto.getHeaders() != null ? messageDto.getHeaders().toString() : null,
+                    sessionHelper.currentSid());
 
             response.put("success", true);
             response.put("details", "Message sent successfully using mode: " +

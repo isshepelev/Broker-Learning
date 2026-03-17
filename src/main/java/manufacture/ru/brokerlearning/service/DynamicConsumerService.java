@@ -36,7 +36,7 @@ public class DynamicConsumerService {
                 : String.join(",", (Collection<String>) bs);
     }
 
-    public Map<String, Object> createConsumer(String name, String topic, String groupId) {
+    public Map<String, Object> createConsumer(String name, String topic, String groupId, String ownerSid) {
         if (name == null || name.isBlank()) {
             name = "consumer-" + counter.incrementAndGet();
         }
@@ -48,11 +48,11 @@ public class DynamicConsumerService {
             return Map.of("success", false, "error", "Consumer с именем '" + name + "' уже существует");
         }
 
-        ConsumerHandle handle = new ConsumerHandle(name, topic, groupId);
+        ConsumerHandle handle = new ConsumerHandle(name, topic, groupId, ownerSid);
         consumers.put(name, handle);
         handle.future = executor.submit(() -> runConsumer(handle));
 
-        log.info("Dynamic consumer '{}' created for topic '{}', group '{}'", name, topic, groupId);
+        log.info("Dynamic consumer '{}' created for topic '{}', group '{}', owner '{}'", name, topic, groupId, ownerSid);
         return Map.of("success", true, "consumer", getConsumerInfo(handle));
     }
 
@@ -96,6 +96,32 @@ public class DynamicConsumerService {
         return Map.of("success", true);
     }
 
+    public Map<String, Object> stopAllForUser(String ownerSid) {
+        List<String> toStop = new ArrayList<>();
+        for (var entry : consumers.entrySet()) {
+            if (ownerSid.equals(entry.getValue().ownerSid)) {
+                toStop.add(entry.getKey());
+            }
+        }
+        for (String name : toStop) {
+            stopConsumer(name);
+        }
+        return Map.of("success", true, "stopped", toStop.size());
+    }
+
+    /** List consumers owned by a specific user */
+    public List<Map<String, Object>> listConsumers(String ownerSid) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (ConsumerHandle handle : consumers.values()) {
+            if (ownerSid.equals(handle.ownerSid)) {
+                result.add(getConsumerInfo(handle));
+            }
+        }
+        result.sort(Comparator.comparing(m -> (String) m.get("name")));
+        return result;
+    }
+
+    /** List all consumers (for backward compatibility) */
     public List<Map<String, Object>> listConsumers() {
         List<Map<String, Object>> result = new ArrayList<>();
         for (ConsumerHandle handle : consumers.values()) {
@@ -119,9 +145,10 @@ public class DynamicConsumerService {
         return result;
     }
 
-    public List<Map<String, Object>> getAllMessages() {
+    public List<Map<String, Object>> getAllMessages(String ownerSid) {
         List<Map<String, Object>> result = new ArrayList<>();
         for (ConsumerHandle handle : consumers.values()) {
+            if (!ownerSid.equals(handle.ownerSid)) continue;
             synchronized (handle.messages) {
                 for (MessageRecord msg : handle.messages) {
                     Map<String, Object> m = msg.toMap();
@@ -169,15 +196,13 @@ public class DynamicConsumerService {
 
             consumer.subscribe(List.of(handle.topic), new org.apache.kafka.clients.consumer.ConsumerRebalanceListener() {
                 @Override
-                public void onPartitionsRevoked(Collection<TopicPartition> partitions) {
+                public void onPartitionsRevoked(java.util.Collection<TopicPartition> partitions) {
                     handle.assignedPartitions.clear();
                 }
-
                 @Override
-                public void onPartitionsAssigned(Collection<TopicPartition> partitions) {
+                public void onPartitionsAssigned(java.util.Collection<TopicPartition> partitions) {
                     handle.assignedPartitions.clear();
                     partitions.forEach(tp -> handle.assignedPartitions.add(tp.partition()));
-                    log.info("Consumer '{}' assigned partitions: {}", handle.name, handle.assignedPartitions);
                 }
             });
 
@@ -186,18 +211,12 @@ public class DynamicConsumerService {
                     ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(500));
                     for (ConsumerRecord<String, String> record : records) {
                         MessageRecord msg = new MessageRecord(
-                                record.topic(),
-                                record.key(),
-                                record.value(),
-                                record.partition(),
-                                record.offset(),
-                                LocalDateTime.now()
+                                record.topic(), record.key(), record.value(),
+                                record.partition(), record.offset(), LocalDateTime.now()
                         );
                         synchronized (handle.messages) {
                             handle.messages.addFirst(msg);
-                            while (handle.messages.size() > MAX_MESSAGES) {
-                                handle.messages.removeLast();
-                            }
+                            while (handle.messages.size() > MAX_MESSAGES) handle.messages.removeLast();
                         }
                     }
                 } catch (WakeupException e) {
@@ -208,7 +227,6 @@ public class DynamicConsumerService {
             log.error("Consumer '{}' error: {}", handle.name, e.getMessage(), e);
         } finally {
             handle.running = false;
-            log.info("Consumer '{}' stopped", handle.name);
         }
     }
 
@@ -216,6 +234,7 @@ public class DynamicConsumerService {
         final String name;
         final String topic;
         final String groupId;
+        final String ownerSid;
         final LocalDateTime createdAt = LocalDateTime.now();
         final LinkedList<MessageRecord> messages = new LinkedList<>();
         final Set<Integer> assignedPartitions = ConcurrentHashMap.newKeySet();
@@ -223,28 +242,23 @@ public class DynamicConsumerService {
         volatile KafkaConsumer<String, String> consumer;
         volatile Future<?> future;
 
-        ConsumerHandle(String name, String topic, String groupId) {
+        ConsumerHandle(String name, String topic, String groupId, String ownerSid) {
             this.name = name;
             this.topic = topic;
             this.groupId = groupId;
+            this.ownerSid = ownerSid;
         }
     }
 
     private static class MessageRecord {
-        final String topic;
-        final String key;
-        final String value;
+        final String topic, key, value;
         final int partition;
         final long offset;
         final LocalDateTime time;
 
         MessageRecord(String topic, String key, String value, int partition, long offset, LocalDateTime time) {
-            this.topic = topic;
-            this.key = key;
-            this.value = value;
-            this.partition = partition;
-            this.offset = offset;
-            this.time = time;
+            this.topic = topic; this.key = key; this.value = value;
+            this.partition = partition; this.offset = offset; this.time = time;
         }
 
         Map<String, Object> toMap() {

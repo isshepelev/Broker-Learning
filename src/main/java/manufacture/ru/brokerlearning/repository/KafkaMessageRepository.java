@@ -26,4 +26,18 @@ public interface KafkaMessageRepository extends JpaRepository<KafkaMessageEntity
 
     @Query("SELECT m.topic, COUNT(m) FROM KafkaMessageEntity m WHERE m.direction = :direction GROUP BY m.topic")
     List<Object[]> countByTopicAndDirection(@Param("direction") String direction);
+
+    // Per-user queries
+    List<KafkaMessageEntity> findTop100ByOwnerSidOrderByTimestampDesc(String ownerSid);
+
+    long countByDirectionAndOwnerSid(String direction, String ownerSid);
+
+    long countByOwnerSidAndTimestampAfter(String ownerSid, LocalDateTime after);
+
+    List<KafkaMessageEntity> findByOwnerSidAndTimestampAfterOrderByTimestampAsc(String ownerSid, LocalDateTime after);
+
+    List<KafkaMessageEntity> findByDirectionAndOwnerSidOrderByTimestampDesc(String direction, String ownerSid);
+
+    List<KafkaMessageEntity> findByOwnerSidAndDirectionAndTimestampAfterOrderByTimestampDesc(
+            String ownerSid, String direction, LocalDateTime after);
 }

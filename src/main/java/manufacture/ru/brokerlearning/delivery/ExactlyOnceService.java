@@ -22,17 +22,17 @@ public class ExactlyOnceService {
         this.historyService = historyService;
     }
 
-    public Map<String, Object> demonstrate(int messageCount) {
+    public Map<String, Object> demonstrate(String sid, int messageCount) {
+        String topic = "exactly-once-" + sid;
         Map<String, Object> results = new HashMap<>();
 
         int sent = transactionalKafkaTemplate.executeInTransaction(operations -> {
             int count = 0;
             for (int i = 0; i < messageCount; i++) {
                 String message = "exactly-once-message-" + i;
-                operations.send("exactly-once-topic", message);
-                historyService.saveSentMessage("exactly-once-topic", null, message, null, null);
+                operations.send(topic, message);
+                historyService.saveSentMessage(topic, null, message, null, null, sid);
                 count++;
-                log.info("Sent (transactional): {}", message);
             }
             return count;
         });

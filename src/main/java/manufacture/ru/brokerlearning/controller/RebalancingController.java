@@ -1,6 +1,8 @@
 package manufacture.ru.brokerlearning.controller;
 
 import lombok.RequiredArgsConstructor;
+import manufacture.ru.brokerlearning.config.UserSessionHelper;
+import manufacture.ru.brokerlearning.service.KafkaAdminService;
 import manufacture.ru.brokerlearning.service.RebalancingPracticeService;
 import manufacture.ru.brokerlearning.service.RebalancingService;
 import org.springframework.stereotype.Controller;
@@ -17,6 +19,8 @@ public class RebalancingController {
 
     private final RebalancingService rebalancingService;
     private final RebalancingPracticeService practiceService;
+    private final UserSessionHelper sessionHelper;
+    private final KafkaAdminService adminService;
 
     @GetMapping("")
     public String page(Model model) {
@@ -29,31 +33,31 @@ public class RebalancingController {
     @PostMapping("/add")
     @ResponseBody
     public Map<String, Object> addConsumer() {
-        return rebalancingService.addConsumer();
+        return rebalancingService.addConsumer(sessionHelper.currentSid());
     }
 
     @PostMapping("/remove")
     @ResponseBody
     public Map<String, Object> removeConsumer() {
-        return rebalancingService.removeConsumer();
+        return rebalancingService.removeConsumer(sessionHelper.currentSid());
     }
 
     @PostMapping("/add-partition")
     @ResponseBody
     public Map<String, Object> addPartition() {
-        return rebalancingService.addPartition();
+        return rebalancingService.addPartition(sessionHelper.currentSid());
     }
 
     @PostMapping("/reset")
     @ResponseBody
     public Map<String, Object> reset() {
-        return rebalancingService.reset();
+        return rebalancingService.reset(sessionHelper.currentSid());
     }
 
     @GetMapping("/status")
     @ResponseBody
     public Map<String, Object> status() {
-        return rebalancingService.getStatus();
+        return rebalancingService.getStatus(sessionHelper.currentSid());
     }
 
     // ───── Практика ─────
@@ -61,7 +65,13 @@ public class RebalancingController {
     @GetMapping("/practice/topics")
     @ResponseBody
     public Set<String> practiceTopics() {
-        return practiceService.listTopics();
+        try {
+            Set<String> topics = adminService.listTopics();
+            topics.retainAll(sessionHelper.currentUserTopics());
+            return topics;
+        } catch (Exception e) {
+            return Set.of();
+        }
     }
 
     @PostMapping("/practice/create-session")
@@ -70,36 +80,36 @@ public class RebalancingController {
             @RequestParam String topicName,
             @RequestParam String groupId,
             @RequestParam int partitions) {
-        return practiceService.createSession(topicName, groupId, partitions);
+        return practiceService.createSession(sessionHelper.currentSid(), topicName, groupId, partitions);
     }
 
     @PostMapping("/practice/add")
     @ResponseBody
     public Map<String, Object> practiceAddConsumer() {
-        return practiceService.addConsumer();
+        return practiceService.addConsumer(sessionHelper.currentSid());
     }
 
     @PostMapping("/practice/remove")
     @ResponseBody
     public Map<String, Object> practiceRemoveConsumer() {
-        return practiceService.removeConsumer();
+        return practiceService.removeConsumer(sessionHelper.currentSid());
     }
 
     @PostMapping("/practice/add-partition")
     @ResponseBody
     public Map<String, Object> practiceAddPartition() {
-        return practiceService.addPartition();
+        return practiceService.addPartition(sessionHelper.currentSid());
     }
 
     @PostMapping("/practice/reset")
     @ResponseBody
     public Map<String, Object> practiceReset() {
-        return practiceService.reset();
+        return practiceService.reset(sessionHelper.currentSid());
     }
 
     @GetMapping("/practice/status")
     @ResponseBody
     public Map<String, Object> practiceStatus() {
-        return practiceService.getStatus();
+        return practiceService.getStatus(sessionHelper.currentSid());
     }
 }

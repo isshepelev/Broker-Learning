@@ -18,7 +18,8 @@ public class AtLeastOnceService {
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final manufacture.ru.brokerlearning.service.MessageHistoryService historyService;
 
-    public Map<String, Object> demonstrate(int messageCount) {
+    public Map<String, Object> demonstrate(String sid, int messageCount) {
+        String topic = "at-least-once-" + sid;
         Map<String, Object> results = new HashMap<>();
         int sent = 0;
         int confirmed = 0;
@@ -26,16 +27,11 @@ public class AtLeastOnceService {
         for (int i = 0; i < messageCount; i++) {
             String message = "at-least-once-message-" + i;
             try {
-                CompletableFuture<SendResult<String, String>> future =
-                        kafkaTemplate.send("at-least-once-topic", message);
-                SendResult<String, String> result = future.get();
-                historyService.saveSentMessage("at-least-once-topic", null, message, null, null);
+                CompletableFuture<SendResult<String, String>> future = kafkaTemplate.send(topic, message);
+                future.get();
+                historyService.saveSentMessage(topic, null, message, null, null, sid);
                 sent++;
                 confirmed++;
-                log.info("Sent and confirmed: {} -> partition={}, offset={}",
-                        message,
-                        result.getRecordMetadata().partition(),
-                        result.getRecordMetadata().offset());
             } catch (Exception e) {
                 sent++;
                 log.error("Failed to confirm message: {}", message, e);

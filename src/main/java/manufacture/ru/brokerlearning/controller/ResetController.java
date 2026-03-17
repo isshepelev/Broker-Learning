@@ -2,8 +2,10 @@ package manufacture.ru.brokerlearning.controller;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import manufacture.ru.brokerlearning.config.InternalKafkaRegistry;
-import manufacture.ru.brokerlearning.repository.KafkaMessageRepository;
+import manufacture.ru.brokerlearning.config.UserSessionHelper;
+import manufacture.ru.brokerlearning.job.JobManagementService;
+import manufacture.ru.brokerlearning.model.UserResource;
+import manufacture.ru.brokerlearning.repository.UserResourceRepository;
 import manufacture.ru.brokerlearning.service.*;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.springframework.web.bind.annotation.*;
@@ -21,14 +23,19 @@ public class ResetController {
     private final DlqCompareService dlqCompareService;
     private final ReplayPracticeService replayPracticeService;
     private final ReplayService replayService;
-    private final KafkaMessageRepository messageRepository;
+    private final RebalancingService rebalancingService;
+    private final RebalancingPracticeService rebalancingPracticeService;
+    private final OrderingService orderingService;
+    private final JobManagementService jobManagementService;
+    private final UserSessionHelper sessionHelper;
+    private final UserResourceRepository resourceRepository;
 
     @PostMapping
     public Map<String, Object> resetAll() {
+        String sid = sessionHelper.currentSid();
         Map<String, Object> result = new LinkedHashMap<>();
         List<String> actions = new ArrayList<>();
 
-        // 1. Останавливаем динамических consumer-ов
         try {
             dynamicConsumerService.stopAll();
             actions.add("Динамические consumer-ы остановлены");
@@ -36,77 +43,57 @@ public class ResetController {
             actions.add("Ошибка остановки consumer-ов: " + e.getMessage());
         }
 
-        // 2. Завершаем practice-сессию
         try {
-            replayPracticeService.endSession();
+            replayPracticeService.endSession(sid);
             actions.add("Practice-сессия завершена");
         } catch (Exception e) {
-            actions.add("Ошибка завершения practice-сессии: " + e.getMessage());
+            actions.add("Ошибка: " + e.getMessage());
         }
 
-        // 3. Очищаем replay-topic
         try {
-            replayService.clearTopic();
-            actions.add("replay-topic очищен");
+            replayService.cleanupSession(sid);
+            actions.add("Replay-ресурсы пользователя удалены");
         } catch (Exception e) {
-            actions.add("Ошибка очистки replay-topic: " + e.getMessage());
+            actions.add("Ошибка: " + e.getMessage());
         }
 
-        // 4. Очищаем DLQ-состояние
         try {
-            dlqCompareService.clear();
+            dlqCompareService.clear(sid);
             actions.add("DLQ-состояние очищено");
         } catch (Exception e) {
-            actions.add("Ошибка очистки DLQ: " + e.getMessage());
+            actions.add("Ошибка: " + e.getMessage());
         }
 
-        // 5. Удаляем пользовательские топики
-        try {
-            Set<String> allTopics = adminClient.listTopics().names().get();
-            List<String> toDelete = new ArrayList<>();
-            for (String topic : allTopics) {
-                if (InternalKafkaRegistry.isUserTopic(topic)) {
-                    toDelete.add(topic);
-                }
-            }
-            if (!toDelete.isEmpty()) {
-                adminClient.deleteTopics(toDelete).all().get();
-                actions.add("Удалено " + toDelete.size() + " пользовательских топиков: " + String.join(", ", toDelete));
-            } else {
-                actions.add("Пользовательских топиков не найдено");
-            }
-        } catch (Exception e) {
-            actions.add("Ошибка удаления топиков: " + e.getMessage());
-        }
+        try { rebalancingService.cleanupSession(sid); actions.add("Rebalancing demo очищен"); } catch (Exception e) { actions.add("Ошибка: " + e.getMessage()); }
+        try { rebalancingPracticeService.cleanupSession(sid); actions.add("Rebalancing practice очищен"); } catch (Exception e) { actions.add("Ошибка: " + e.getMessage()); }
+        try { orderingService.cleanupSession(sid); actions.add("Ordering очищен"); } catch (Exception e) { actions.add("Ошибка: " + e.getMessage()); }
+        try { jobManagementService.cleanup(sid); actions.add("Jobs остановлены"); } catch (Exception e) { actions.add("Ошибка: " + e.getMessage()); }
 
-        // 6. Удаляем пользовательские consumer group-ы
+        // Delete user-owned Kafka topics and consumer groups
         try {
-            List<String> allGroups = adminClient.listConsumerGroups().all().get().stream()
-                    .map(g -> g.groupId())
-                    .filter(InternalKafkaRegistry::isUserGroup)
-                    .toList();
-            if (!allGroups.isEmpty()) {
-                adminClient.deleteConsumerGroups(allGroups).all().get();
-                actions.add("Удалено " + allGroups.size() + " пользовательских consumer group");
-            } else {
-                actions.add("Пользовательских consumer group не найдено");
+            List<UserResource> userResources = resourceRepository.findByOwnerSid(sid);
+            List<String> topicsToDelete = new ArrayList<>();
+            List<String> groupsToDelete = new ArrayList<>();
+            for (UserResource r : userResources) {
+                if ("TOPIC".equals(r.getResourceType())) topicsToDelete.add(r.getResourceName());
+                if ("CONSUMER_GROUP".equals(r.getResourceType())) groupsToDelete.add(r.getResourceName());
             }
+            if (!topicsToDelete.isEmpty()) {
+                try { adminClient.deleteTopics(topicsToDelete).all().get(); } catch (Exception ignored) {}
+                actions.add("Удалено " + topicsToDelete.size() + " топиков: " + String.join(", ", topicsToDelete));
+            }
+            if (!groupsToDelete.isEmpty()) {
+                try { adminClient.deleteConsumerGroups(groupsToDelete).all().get(); } catch (Exception ignored) {}
+                actions.add("Удалено " + groupsToDelete.size() + " consumer group");
+            }
+            resourceRepository.deleteAll(userResources);
         } catch (Exception e) {
-            actions.add("Ошибка удаления consumer group: " + e.getMessage());
-        }
-
-        // 7. Очищаем БД
-        try {
-            long count = messageRepository.count();
-            messageRepository.deleteAll();
-            actions.add("Удалено " + count + " записей из БД");
-        } catch (Exception e) {
-            actions.add("Ошибка очистки БД: " + e.getMessage());
+            actions.add("Ошибка удаления ресурсов: " + e.getMessage());
         }
 
         result.put("success", true);
         result.put("actions", actions);
-        log.info("Full reset completed: {}", actions);
+        log.info("Reset completed for user {} (sid={}): {}", sessionHelper.currentUsername(), sid, actions);
         return result;
     }
 }

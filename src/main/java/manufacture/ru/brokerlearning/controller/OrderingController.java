@@ -1,6 +1,7 @@
 package manufacture.ru.brokerlearning.controller;
 
 import lombok.RequiredArgsConstructor;
+import manufacture.ru.brokerlearning.config.UserSessionHelper;
 import manufacture.ru.brokerlearning.service.OrderingService;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -14,6 +15,7 @@ import java.util.*;
 public class OrderingController {
 
     private final OrderingService orderingService;
+    private final UserSessionHelper sessionHelper;
 
     @GetMapping("")
     public String page(Model model) {
@@ -24,11 +26,12 @@ public class OrderingController {
     @PostMapping("/run")
     @ResponseBody
     public Map<String, Object> run(@RequestBody Map<String, Object> request) {
+        String sid = sessionHelper.currentSid();
         Map<String, Object> response = new HashMap<>();
         try {
             int count = Integer.parseInt(request.getOrDefault("count", "10").toString());
             count = Math.max(3, Math.min(count, 1000));
-            Map<String, Object> result = orderingService.runDemo(count);
+            Map<String, Object> result = orderingService.runDemo(sid, count);
             response.put("success", true);
             response.putAll(result);
         } catch (Exception e) {
@@ -41,6 +44,7 @@ public class OrderingController {
     @PostMapping("/run-multi")
     @ResponseBody
     public Map<String, Object> runMulti(@RequestBody Map<String, Object> request) {
+        String sid = sessionHelper.currentSid();
         Map<String, Object> response = new HashMap<>();
         try {
             int countPerKey = Integer.parseInt(request.getOrDefault("countPerKey", "5").toString());
@@ -50,7 +54,7 @@ public class OrderingController {
             List<String> keys = (List<String>) request.getOrDefault("keys",
                     List.of("user-A", "user-B", "user-C"));
 
-            Map<String, Object> result = orderingService.runMultiKeyDemo(countPerKey, keys);
+            Map<String, Object> result = orderingService.runMultiKeyDemo(sid, countPerKey, keys);
             response.put("success", true);
             response.putAll(result);
         } catch (Exception e) {

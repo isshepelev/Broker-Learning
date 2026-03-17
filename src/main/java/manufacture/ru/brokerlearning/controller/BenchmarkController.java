@@ -2,6 +2,7 @@ package manufacture.ru.brokerlearning.controller;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import manufacture.ru.brokerlearning.config.UserSessionHelper;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.springframework.beans.factory.annotation.Value;
@@ -21,6 +22,7 @@ import java.util.concurrent.TimeUnit;
 public class BenchmarkController {
 
     private final KafkaTemplate<String, String> kafkaTemplate;
+    private final UserSessionHelper sessionHelper;
 
     @Value("${spring.kafka.bootstrap-servers}")
     private String bootstrapServers;
@@ -39,7 +41,8 @@ public class BenchmarkController {
 
         Map<String, Object> response = new HashMap<>();
         List<Map<String, Object>> results = new ArrayList<>();
-        String topic = "benchmark-topic";
+        String sid = sessionHelper.currentSid();
+        String topic = "benchmark-topic-" + sid;
 
         try {
             // 1. Fire-and-Forget
@@ -135,9 +138,10 @@ public class BenchmarkController {
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
         props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
-        props.put(ProducerConfig.TRANSACTIONAL_ID_CONFIG, "bench-tx-");
+        String txPrefix = "bench-tx-" + sessionHelper.currentSid() + "-";
+        props.put(ProducerConfig.TRANSACTIONAL_ID_CONFIG, txPrefix);
         DefaultKafkaProducerFactory<String, String> factory = new DefaultKafkaProducerFactory<>(props);
-        factory.setTransactionIdPrefix("bench-tx-");
+        factory.setTransactionIdPrefix(txPrefix);
         KafkaTemplate<String, String> txTemplate = new KafkaTemplate<>(factory);
 
         long start = System.nanoTime();

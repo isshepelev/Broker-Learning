@@ -18,36 +18,28 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * Демо Consumer Group Rebalancing с реальными Kafka consumer'ами.
- */
 @Service
 @Slf4j
 public class RebalancingService {
 
-    private static final String TOPIC = "rebalancing-topic";
-    private static final String GROUP_ID = "rebalancing-demo-group";
+    private static final String TOPIC_PREFIX = "rebalancing-topic-";
+    private static final String GROUP_PREFIX = "rebalancing-group-";
     private static final int INITIAL_PARTITIONS = 6;
     private static final int MAX_PARTITIONS = 12;
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("HH:mm:ss");
 
     private final String bootstrapServers;
     private final ExecutorService executor = Executors.newCachedThreadPool();
-    private final AtomicInteger counter = new AtomicInteger(0);
 
-    // Текущее количество партиций (может увеличиваться)
-    private volatile int currentPartitions = INITIAL_PARTITIONS;
+    private static class SessionState {
+        final AtomicInteger counter = new AtomicInteger(0);
+        volatile int currentPartitions = INITIAL_PARTITIONS;
+        final Map<String, ConsumerHandle> handles = new ConcurrentHashMap<>();
+        final Map<String, Set<Integer>> assignments = new ConcurrentHashMap<>();
+        final List<Map<String, String>> eventLog = Collections.synchronizedList(new ArrayList<>());
+    }
 
-    // Consumer state
-    private final Map<String, ConsumerHandle> handles = new ConcurrentHashMap<>();
-
-    // Текущее назначение: consumerId → partitions
-    @Getter
-    private final Map<String, Set<Integer>> assignments = new ConcurrentHashMap<>();
-
-    // Лог событий
-    @Getter
-    private final List<Map<String, String>> eventLog = Collections.synchronizedList(new ArrayList<>());
+    private final ConcurrentHashMap<String, SessionState> sessions = new ConcurrentHashMap<>();
 
     private static class ConsumerHandle {
         volatile Future<?> future;
@@ -59,215 +51,191 @@ public class RebalancingService {
         Object bs = kafkaAdmin.getConfigurationProperties().get("bootstrap.servers");
         this.bootstrapServers = bs instanceof String ? (String) bs
                 : String.join(",", (Collection<String>) bs);
-        ensureTopic();
     }
 
-    public synchronized Map<String, Object> addConsumer() {
-        String id = "Consumer-" + counter.incrementAndGet();
+    private SessionState session(String sid) {
+        return sessions.computeIfAbsent(sid, k -> {
+            SessionState s = new SessionState();
+            ensureTopic(sid, s);
+            return s;
+        });
+    }
+
+    private String topicFor(String sid) { return TOPIC_PREFIX + sid; }
+    private String groupFor(String sid) { return GROUP_PREFIX + sid; }
+
+    public synchronized Map<String, Object> addConsumer(String sid) {
+        SessionState s = session(sid);
+        String id = "Consumer-" + s.counter.incrementAndGet();
 
         ConsumerHandle handle = new ConsumerHandle();
-        handles.put(id, handle);
-        handle.future = executor.submit(() -> runConsumer(id, handle));
+        s.handles.put(id, handle);
+        handle.future = executor.submit(() -> runConsumer(sid, id, handle));
 
-        addEvent("ADD", id, "Добавлен в группу, ожидание rebalance...");
-        log.info("Rebalancing: adding {}", id);
-
-        waitForStableAssignments();
-
-        return getStatus();
+        addEvent(s, "ADD", id, "Добавлен в группу, ожидание rebalance...");
+        waitForStableAssignments(s);
+        return getStatus(sid);
     }
 
-    public synchronized Map<String, Object> removeConsumer() {
-        if (handles.isEmpty()) return getStatus();
+    public synchronized Map<String, Object> removeConsumer(String sid) {
+        SessionState s = session(sid);
+        if (s.handles.isEmpty()) return getStatus(sid);
 
-        // Удаляем последнего
-        String lastId = handles.keySet().stream()
+        String lastId = s.handles.keySet().stream()
                 .max(Comparator.comparingInt(k -> Integer.parseInt(k.split("-")[1])))
                 .orElse(null);
-        if (lastId == null) return getStatus();
+        if (lastId == null) return getStatus(sid);
 
-        ConsumerHandle handle = handles.remove(lastId);
-
+        ConsumerHandle handle = s.handles.remove(lastId);
         handle.running = false;
-        if (handle.consumer != null) {
-            handle.consumer.wakeup();
-        }
+        if (handle.consumer != null) handle.consumer.wakeup();
         if (handle.future != null) {
             try { handle.future.get(10, TimeUnit.SECONDS); } catch (Exception ignored) {}
         }
-        assignments.remove(lastId);
+        s.assignments.remove(lastId);
+        addEvent(s, "REMOVE", lastId, "Удалён из группы, запущен rebalance...");
 
-        addEvent("REMOVE", lastId, "Удалён из группы, запущен rebalance...");
-        log.info("Rebalancing: removed {}", lastId);
-
-        if (!handles.isEmpty()) {
-            waitForStableAssignments();
-        }
-
-        return getStatus();
+        if (!s.handles.isEmpty()) waitForStableAssignments(s);
+        return getStatus(sid);
     }
 
-    public synchronized Map<String, Object> addPartition() {
-        if (currentPartitions >= MAX_PARTITIONS) {
-            addEvent("PARTITION", "—", "Достигнут лимит: " + MAX_PARTITIONS + " партиций");
-            return getStatus();
+    public synchronized Map<String, Object> addPartition(String sid) {
+        SessionState s = session(sid);
+        if (s.currentPartitions >= MAX_PARTITIONS) {
+            addEvent(s, "PARTITION", "—", "Достигнут лимит: " + MAX_PARTITIONS + " партиций");
+            return getStatus(sid);
         }
-
-        int newCount = currentPartitions + 1;
-
+        int newCount = s.currentPartitions + 1;
         try (AdminClient admin = AdminClient.create(adminProps())) {
-            admin.createPartitions(Map.of(TOPIC, NewPartitions.increaseTo(newCount))).all().get();
-            currentPartitions = newCount;
-            addEvent("PARTITION", "—", "Добавлена партиция P" + (newCount - 1) + " (всего: " + newCount + ")");
-            log.info("Rebalancing: increased partitions to {}", newCount);
+            admin.createPartitions(Map.of(topicFor(sid), NewPartitions.increaseTo(newCount))).all().get();
+            s.currentPartitions = newCount;
+            addEvent(s, "PARTITION", "—", "Добавлена партиция P" + (newCount - 1) + " (всего: " + newCount + ")");
         } catch (Exception e) {
-            log.error("Failed to add partition: {}", e.getMessage());
-            addEvent("PARTITION", "—", "Ошибка добавления партиции: " + e.getMessage());
-            return getStatus();
+            addEvent(s, "PARTITION", "—", "Ошибка: " + e.getMessage());
+            return getStatus(sid);
         }
-
-        // Ждём rebalance если есть consumer'ы
-        if (!handles.isEmpty()) {
-            waitForStableAssignments();
-        }
-
-        return getStatus();
+        if (!s.handles.isEmpty()) waitForStableAssignments(s);
+        return getStatus(sid);
     }
 
-    public synchronized Map<String, Object> reset() {
-        // Останавливаем всех consumer'ов
-        for (var handle : handles.values()) {
+    public synchronized Map<String, Object> reset(String sid) {
+        SessionState s = session(sid);
+        for (var handle : s.handles.values()) {
             handle.running = false;
             if (handle.consumer != null) handle.consumer.wakeup();
         }
-        for (var handle : handles.values()) {
+        for (var handle : s.handles.values()) {
             if (handle.future != null) {
                 try { handle.future.get(10, TimeUnit.SECONDS); } catch (Exception ignored) {}
             }
         }
-        handles.clear();
-        assignments.clear();
-        eventLog.clear();
-        counter.set(0);
-
-        // Пересоздаём топик с начальным количеством партиций
-        resetTopic();
-        currentPartitions = INITIAL_PARTITIONS;
-
-        addEvent("RESET", "—", "Все consumer'ы остановлены, партиции сброшены до " + INITIAL_PARTITIONS);
-        return getStatus();
+        s.handles.clear();
+        s.assignments.clear();
+        s.eventLog.clear();
+        s.counter.set(0);
+        resetTopic(sid);
+        s.currentPartitions = INITIAL_PARTITIONS;
+        addEvent(s, "RESET", "—", "Все consumer'ы остановлены, партиции сброшены до " + INITIAL_PARTITIONS);
+        return getStatus(sid);
     }
 
-    public Map<String, Object> getStatus() {
+    public Map<String, Object> getStatus(String sid) {
+        SessionState s = session(sid);
         Map<String, Object> status = new LinkedHashMap<>();
-        status.put("totalPartitions", currentPartitions);
+        status.put("totalPartitions", s.currentPartitions);
         status.put("maxPartitions", MAX_PARTITIONS);
-        status.put("consumerCount", handles.size());
-        status.put("assignments", new LinkedHashMap<>(assignments));
-        status.put("events", new ArrayList<>(eventLog));
-        status.put("allConsumers", new ArrayList<>(handles.keySet()));
+        status.put("consumerCount", s.handles.size());
+        status.put("assignments", new LinkedHashMap<>(s.assignments));
+        status.put("events", new ArrayList<>(s.eventLog));
+        status.put("allConsumers", new ArrayList<>(s.handles.keySet()));
 
         Set<Integer> allAssigned = new HashSet<>();
-        assignments.values().forEach(allAssigned::addAll);
+        s.assignments.values().forEach(allAssigned::addAll);
         Set<Integer> unassigned = new LinkedHashSet<>();
-        for (int i = 0; i < currentPartitions; i++) {
+        for (int i = 0; i < s.currentPartitions; i++) {
             if (!allAssigned.contains(i)) unassigned.add(i);
         }
         status.put("unassigned", unassigned);
-
         return status;
     }
 
-    private void waitForStableAssignments() {
+    public void cleanupSession(String sid) {
+        SessionState s = sessions.remove(sid);
+        if (s == null) return;
+        for (var handle : s.handles.values()) {
+            handle.running = false;
+            if (handle.consumer != null) handle.consumer.wakeup();
+        }
+        try (AdminClient admin = AdminClient.create(adminProps())) {
+            try { admin.deleteConsumerGroups(List.of(groupFor(sid))).all().get(); } catch (Exception ignored) {}
+            try { admin.deleteTopics(List.of(topicFor(sid))).all().get(); } catch (Exception ignored) {}
+        } catch (Exception ignored) {}
+    }
+
+    private void waitForStableAssignments(SessionState s) {
         long deadline = System.currentTimeMillis() + 15_000;
         try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
-
         while (System.currentTimeMillis() < deadline) {
-            if (isAssignmentStable()) {
-                log.info("Rebalancing: assignments stable — {}", assignments);
-                return;
+            Set<Integer> all = new HashSet<>();
+            for (String cId : s.handles.keySet()) {
+                Set<Integer> parts = s.assignments.get(cId);
+                if (parts != null) all.addAll(parts);
             }
+            if (all.size() == s.currentPartitions) return;
             try { Thread.sleep(500); } catch (InterruptedException ignored) {}
         }
-        log.warn("Rebalancing: timed out waiting for stable assignments, current: {}", assignments);
     }
 
-    private boolean isAssignmentStable() {
-        Set<Integer> allPartitions = new HashSet<>();
-        for (String cId : handles.keySet()) {
-            Set<Integer> parts = assignments.get(cId);
-            if (parts != null) {
-                allPartitions.addAll(parts);
-            }
-        }
-        return allPartitions.size() == currentPartitions;
-    }
-
-    private void runConsumer(String consumerId, ConsumerHandle handle) {
+    private void runConsumer(String sid, String consumerId, ConsumerHandle handle) {
         Properties props = new Properties();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, GROUP_ID);
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, groupFor(sid));
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
         props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "true");
         props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, "10000");
         props.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, "2000");
-        // Быстрое обнаружение новых партиций (по умолчанию 5 минут)
         props.put(ConsumerConfig.METADATA_MAX_AGE_CONFIG, "60000");
 
+        SessionState s = sessions.get(sid);
         try (KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props)) {
             handle.consumer = consumer;
-
-            consumer.subscribe(List.of(TOPIC), new ConsumerRebalanceListener() {
+            consumer.subscribe(List.of(topicFor(sid)), new ConsumerRebalanceListener() {
                 @Override
-                public void onPartitionsRevoked(Collection<TopicPartition> partitions) {
-                    assignments.remove(consumerId);
-                    if (!partitions.isEmpty()) {
-                        Set<Integer> revoked = new LinkedHashSet<>();
-                        partitions.forEach(tp -> revoked.add(tp.partition()));
-                        addEvent("REVOKE", consumerId, "Отобраны партиции: " + revoked);
+                public void onPartitionsRevoked(java.util.Collection<TopicPartition> partitions) {
+                    if (s != null) {
+                        s.assignments.remove(consumerId);
+                        if (!partitions.isEmpty()) {
+                            Set<Integer> revoked = new LinkedHashSet<>();
+                            partitions.forEach(tp -> revoked.add(tp.partition()));
+                            addEvent(s, "REVOKE", consumerId, "Отобраны партиции: " + revoked);
+                        }
                     }
                 }
-
                 @Override
-                public void onPartitionsAssigned(Collection<TopicPartition> partitions) {
-                    Set<Integer> assigned = new LinkedHashSet<>();
-                    partitions.forEach(tp -> assigned.add(tp.partition()));
-                    assignments.put(consumerId, assigned);
-
-                    if (!assigned.isEmpty()) {
-                        addEvent("ASSIGN", consumerId, "Назначены партиции: " + assigned);
-                    } else {
-                        addEvent("ASSIGN", consumerId, "Нет партиций (idle)");
+                public void onPartitionsAssigned(java.util.Collection<TopicPartition> partitions) {
+                    if (s != null) {
+                        Set<Integer> assigned = new LinkedHashSet<>();
+                        partitions.forEach(tp -> assigned.add(tp.partition()));
+                        s.assignments.put(consumerId, assigned);
+                        addEvent(s, "ASSIGN", consumerId, assigned.isEmpty() ? "Нет партиций (idle)" : "Назначены партиции: " + assigned);
                     }
                 }
             });
-
             while (handle.running) {
-                try {
-                    consumer.poll(Duration.ofMillis(1000));
-                } catch (WakeupException e) {
-                    if (!handle.running) break;
-                }
+                try { consumer.poll(Duration.ofMillis(1000)); }
+                catch (WakeupException e) { if (!handle.running) break; }
             }
-
         } catch (Exception e) {
             log.warn("Rebalancing: {} error: {}", consumerId, e.getMessage());
-        } finally {
-            log.info("Rebalancing: {} shut down", consumerId);
         }
     }
 
-    private void addEvent(String type, String consumer, String message) {
-        synchronized (eventLog) {
-            eventLog.add(0, Map.of(
-                    "time", LocalTime.now().format(FMT),
-                    "type", type,
-                    "consumer", consumer,
-                    "message", message
-            ));
-            while (eventLog.size() > 50) eventLog.remove(eventLog.size() - 1);
+    private void addEvent(SessionState s, String type, String consumer, String message) {
+        synchronized (s.eventLog) {
+            s.eventLog.add(0, Map.of("time", LocalTime.now().format(FMT), "type", type, "consumer", consumer, "message", message));
+            while (s.eventLog.size() > 50) s.eventLog.remove(s.eventLog.size() - 1);
         }
     }
 
@@ -277,34 +245,30 @@ public class RebalancingService {
         return props;
     }
 
-    private void ensureTopic() {
+    private void ensureTopic(String sid, SessionState s) {
         try (AdminClient admin = AdminClient.create(adminProps())) {
+            String topic = topicFor(sid);
             Set<String> existing = admin.listTopics().names().get();
-            if (!existing.contains(TOPIC)) {
-                admin.createTopics(List.of(new NewTopic(TOPIC, INITIAL_PARTITIONS, (short) 1))).all().get();
+            if (!existing.contains(topic)) {
+                admin.createTopics(List.of(new NewTopic(topic, INITIAL_PARTITIONS, (short) 1))).all().get();
             } else {
-                // Узнаём текущее количество партиций
-                var desc = admin.describeTopics(List.of(TOPIC)).allTopicNames().get().get(TOPIC);
-                if (desc != null) {
-                    currentPartitions = desc.partitions().size();
-                }
+                var desc = admin.describeTopics(List.of(topic)).allTopicNames().get().get(topic);
+                if (desc != null) s.currentPartitions = desc.partitions().size();
             }
         } catch (Exception e) {
             log.warn("ensureTopic error: {}", e.getMessage());
         }
     }
 
-    private void resetTopic() {
+    private void resetTopic(String sid) {
+        String topic = topicFor(sid);
         try (AdminClient admin = AdminClient.create(adminProps())) {
-            admin.deleteTopics(List.of(TOPIC)).all().get();
-            // Ждём удаления
+            admin.deleteTopics(List.of(topic)).all().get();
             for (int i = 0; i < 20; i++) {
                 Thread.sleep(500);
-                Set<String> existing = admin.listTopics().names().get();
-                if (!existing.contains(TOPIC)) break;
+                if (!admin.listTopics().names().get().contains(topic)) break;
             }
-            admin.createTopics(List.of(new NewTopic(TOPIC, INITIAL_PARTITIONS, (short) 1))).all().get();
-            log.info("Rebalancing: topic recreated with {} partitions", INITIAL_PARTITIONS);
+            admin.createTopics(List.of(new NewTopic(topic, INITIAL_PARTITIONS, (short) 1))).all().get();
         } catch (Exception e) {
             log.warn("resetTopic error: {}", e.getMessage());
         }
