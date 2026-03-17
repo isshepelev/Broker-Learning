@@ -140,6 +140,21 @@
             border-radius: 50px;
             transition: all var(--transition);
         }
+        .header-admin-btn {
+            color: #f59e0b;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: .82rem;
+            padding: .35rem .8rem;
+            border: 1.5px solid rgba(245,158,11,.4);
+            border-radius: 50px;
+            transition: all var(--transition);
+        }
+        .header-admin-btn:hover {
+            color: #fff;
+            background: rgba(245,158,11,.8);
+            border-color: #f59e0b;
+        }
         .header-logout-btn:hover {
             color: #ef4444;
             border-color: #ef4444;
@@ -542,6 +557,7 @@
         <div class="d-flex align-items-center gap-3">
             <a class="header-external" href="http://localhost:8090" target="_blank" rel="noopener">Kafka UI &#8599;</a>
             <button class="header-reset-btn" onclick="globalReset()" id="globalResetBtn">Reset</button>
+            <a class="header-admin-btn" th:href="@{/admin}" sec:authorize="hasRole('ADMIN')">Admin</a>
             <span class="header-user" sec:authorize="isAuthenticated()" sec:authentication="name">user</span>
             <a class="header-logout-btn" th:href="@{/logout}" sec:authorize="isAuthenticated()">Выйти</a>
         </div>

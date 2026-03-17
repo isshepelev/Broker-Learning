@@ -1,4 +1,5 @@
 package manufacture.ru.brokerlearning.service;
+import manufacture.ru.brokerlearning.config.UserSessionHelper;
 
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.admin.AdminClient;
@@ -49,8 +50,8 @@ public class ReplayService {
         this.bootstrapServers = bootstrapServers;
     }
 
-    private String topicFor(String sid) { return TOPIC_PREFIX + sid; }
-    private String groupFor(String sid) { return GROUP_PREFIX + sid; }
+    private String topicFor(String sid) { return UserSessionHelper.isAdminSid(sid) ? "replay-topic" : TOPIC_PREFIX + sid; }
+    private String groupFor(String sid) { return UserSessionHelper.isAdminSid(sid) ? "replay-group" : GROUP_PREFIX + sid; }
 
     private SessionCache cache(String sid) {
         return caches.computeIfAbsent(sid, k -> new SessionCache());

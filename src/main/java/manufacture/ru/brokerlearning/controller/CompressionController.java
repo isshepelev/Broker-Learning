@@ -88,7 +88,7 @@ public class CompressionController {
     private Map<String, Object> benchCompression(String codec, String label, String color,
                                                   String description, int count, String message) throws Exception {
         String sid = sessionHelper.currentSid();
-        String topic = TOPIC_PREFIX + sid + "-" + codec;
+        String topic = UserSessionHelper.isAdminSid(sid) ? TOPIC_PREFIX + codec : TOPIC_PREFIX + sid + "-" + codec;
 
         // Создаём топик
         ensureTopic(topic);

@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('Broker Learning - Админ')}"></head>
+<body>
+
+<nav th:replace="~{fragments/layout :: navbar}"></nav>
+
+<div class="container container-main">
+    <div class="page-header" style="text-align:left;">
+        <h2>Администрирование</h2>
+        <p>Управление пользователями, их ресурсами и данными.</p>
+    </div>
+
+    <div id="alertArea" style="display:none;" class="mb-4"></div>
+
+    <div class="card">
+        <div class="card-header bg-white">
+            <h5 class="mb-0" style="font-size:1rem;">Пользователи</h5>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover table-sm mb-0" style="font-size:.85rem;">
+                    <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Логин</th>
+                        <th>SID</th>
+                        <th>Роль</th>
+                        <th>Топиков</th>
+                        <th>Групп</th>
+                        <th>Создан</th>
+                        <th style="width:220px;">Действия</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr th:each="user : ${users}">
+                        <td th:text="${user.id}"></td>
+                        <td>
+                            <strong th:text="${user.username}"></strong>
+                            <span th:if="${user.role == 'ROLE_ADMIN'}" class="badge" style="background:#fee2e2;color:#991b1b;font-size:.65rem;margin-left:4px;">ADMIN</span>
+                        </td>
+                        <td style="font-family:monospace;font-size:.8rem;" th:text="${user.sid == 'admin' ? '(admin)' : user.sid}"></td>
+                        <td th:text="${user.role}"></td>
+                        <td th:text="${user.topicCount}"></td>
+                        <td th:text="${user.groupCount}"></td>
+                        <td style="font-size:.78rem;white-space:nowrap;" th:text="${user.createdAt}"></td>
+                        <td>
+                            <button class="btn btn-outline-warning btn-sm admin-action-btn"
+                                    th:data-id="${user.id}" th:data-username="${user.username}" data-action="reset"
+                                    th:unless="${user.role == 'ROLE_ADMIN'}">Reset</button>
+                            <button class="btn btn-outline-danger btn-sm admin-action-btn"
+                                    th:data-id="${user.id}" th:data-username="${user.username}" data-action="delete"
+                                    th:unless="${user.role == 'ROLE_ADMIN'}">Удалить</button>
+                            <span th:if="${user.role == 'ROLE_ADMIN'}" style="font-size:.78rem;color:var(--c-text-muted);">Защищён</span>
+                        </td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div th:replace="~{fragments/layout :: scripts}"></div>
+
+<script>
+    function showAlert(type, msg) {
+        const a = document.getElementById('alertArea');
+        a.innerHTML = '<div class="alert alert-' + type + ' py-2 mb-0" style="font-size:.85rem;">' + msg + '</div>';
+        a.style.display = '';
+        setTimeout(function() { a.style.display = 'none'; }, 5000);
+    }
+
+    document.addEventListener('click', function(e) {
+        const btn = e.target.closest('.admin-action-btn');
+        if (!btn) return;
+        const id = btn.getAttribute('data-id');
+        const username = btn.getAttribute('data-username');
+        const action = btn.getAttribute('data-action');
+        if (action === 'reset') resetUser(id, username);
+        if (action === 'delete') deleteUser(id, username);
+    });
+
+    async function resetUser(id, username) {
+        if (!confirm('Сбросить все данные пользователя "' + username + '"?')) return;
+        try {
+            const resp = await fetch('/admin/reset-user/' + id, { method: 'POST' });
+            const data = await resp.json();
+            if (data.success) {
+                showAlert('success', 'Reset "' + username + '": ' + (data.actions || []).join('; '));
+                setTimeout(function() { location.reload(); }, 1500);
+            } else {
+                showAlert('danger', data.error || 'Ошибка');
+            }
+        } catch (e) { showAlert('danger', e.message); }
+    }
+
+    async function deleteUser(id, username) {
+        if (!confirm('УДАЛИТЬ пользователя "' + username + '"? Все данные будут удалены навсегда.')) return;
+        try {
+            const resp = await fetch('/admin/delete-user/' + id, { method: 'POST' });
+            const data = await resp.json();
+            if (data.success) {
+                showAlert('success', 'Удалён "' + username + '": ' + (data.actions || []).join('; '));
+                setTimeout(function() { location.reload(); }, 1500);
+            } else {
+                showAlert('danger', data.error || 'Ошибка');
+            }
+        } catch (e) { showAlert('danger', e.message); }
+    }
+</script>
+</body>
+</html>

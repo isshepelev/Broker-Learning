@@ -1,4 +1,5 @@
 package manufacture.ru.brokerlearning.delivery;
+import manufacture.ru.brokerlearning.config.UserSessionHelper;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -23,7 +24,7 @@ public class ExactlyOnceService {
     }
 
     public Map<String, Object> demonstrate(String sid, int messageCount) {
-        String topic = "exactly-once-" + sid;
+        String topic = UserSessionHelper.isAdminSid(sid) ? "exactly-once-topic" : "exactly-once-" + sid;
         Map<String, Object> results = new HashMap<>();
 
         int sent = transactionalKafkaTemplate.executeInTransaction(operations -> {

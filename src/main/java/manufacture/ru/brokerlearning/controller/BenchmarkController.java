@@ -42,7 +42,7 @@ public class BenchmarkController {
         Map<String, Object> response = new HashMap<>();
         List<Map<String, Object>> results = new ArrayList<>();
         String sid = sessionHelper.currentSid();
-        String topic = "benchmark-topic-" + sid;
+        String topic = UserSessionHelper.isAdminSid(sid) ? "benchmark-topic" : "benchmark-topic-" + sid;
 
         try {
             // 1. Fire-and-Forget

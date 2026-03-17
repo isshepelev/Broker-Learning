@@ -55,7 +55,8 @@ public class CompareController {
         String time = LocalDateTime.now().format(FMT);
 
         try {
-            kafkaTemplate.send(TOPIC_PREFIX + sid, "compare-key", message);
+            String topic = UserSessionHelper.isAdminSid(sid) ? "compare-topic" : TOPIC_PREFIX + sid;
+            kafkaTemplate.send(topic, "compare-key", message);
             kafkaTemplate.flush();
             s.kafkaSentCount.incrementAndGet();
             s.kafkaSent.add(0, Map.of("time", time, "value", message));

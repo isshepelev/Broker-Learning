@@ -43,4 +43,28 @@ public class UserSessionHelper {
     public Set<String> currentUserTopics() {
         return resourceRepository.topicNamesForUser(currentSid());
     }
+
+    public static final String ADMIN_SID = "admin";
+
+    /** true если sid принадлежит админу — топики без суффикса */
+    public static boolean isAdminSid(String sid) {
+        return ADMIN_SID.equals(sid);
+    }
+
+    /** Строит имя: prefix для админа, prefix + "-" + sid для обычных пользователей */
+    public static String topicName(String prefix, String sid) {
+        return isAdminSid(sid) ? prefix : prefix + "-" + sid;
+    }
+
+    /** Строит имя consumer group: prefix для админа, prefix + "-" + sid для обычных */
+    public static String groupName(String prefix, String sid) {
+        return isAdminSid(sid) ? prefix : prefix + "-" + sid;
+    }
+
+    public boolean isAdmin() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null) return false;
+        return auth.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()));
+    }
 }

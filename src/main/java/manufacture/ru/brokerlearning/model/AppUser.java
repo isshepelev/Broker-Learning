@@ -23,9 +23,13 @@ public class AppUser {
     @Column(nullable = false)
     private String password;
 
-    /** Стабильный короткий ID для именования топиков/групп (генерируется при регистрации) */
-    @Column(unique = true, nullable = false, length = 8)
+    /** Стабильный короткий ID для именования топиков/групп. У админа sid = "admin" → топики без суффикса */
+    @Column(unique = true, nullable = false, length = 20)
     private String sid;
+
+    @Column(nullable = false)
+    @lombok.Builder.Default
+    private String role = "ROLE_USER";
 
     private LocalDateTime createdAt;
 

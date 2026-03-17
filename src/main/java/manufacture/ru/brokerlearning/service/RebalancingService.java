@@ -1,4 +1,5 @@
 package manufacture.ru.brokerlearning.service;
+import manufacture.ru.brokerlearning.config.UserSessionHelper;
 
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -61,8 +62,8 @@ public class RebalancingService {
         });
     }
 
-    private String topicFor(String sid) { return TOPIC_PREFIX + sid; }
-    private String groupFor(String sid) { return GROUP_PREFIX + sid; }
+    private String topicFor(String sid) { return UserSessionHelper.isAdminSid(sid) ? "rebalancing-topic" : TOPIC_PREFIX + sid; }
+    private String groupFor(String sid) { return UserSessionHelper.isAdminSid(sid) ? "rebalancing-group" : GROUP_PREFIX + sid; }
 
     public synchronized Map<String, Object> addConsumer(String sid) {
         SessionState s = session(sid);

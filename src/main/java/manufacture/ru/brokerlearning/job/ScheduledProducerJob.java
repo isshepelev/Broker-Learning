@@ -1,4 +1,5 @@
 package manufacture.ru.brokerlearning.job;
+import manufacture.ru.brokerlearning.config.UserSessionHelper;
 
 import lombok.extern.slf4j.Slf4j;
 import manufacture.ru.brokerlearning.service.MessageHistoryService;
@@ -51,7 +52,7 @@ public class ScheduledProducerJob {
             double cpuValue = Math.round(Math.random() * 10000.0) / 100.0;
             String metric = String.format("{\"metric\":\"cpu_usage\",\"value\":%.2f,\"timestamp\":\"%s\",\"seq\":%d}",
                     cpuValue, Instant.now(), count);
-            String topic = "metrics-topic-" + sid;
+            String topic = UserSessionHelper.isAdminSid(sid) ? "metrics-topic" : "metrics-topic-" + sid;
 
             kafkaTemplate.send(topic, "metric-" + count, metric);
             messageHistoryService.saveSentMessage(topic, "metric-" + count, metric, null, null, sid);

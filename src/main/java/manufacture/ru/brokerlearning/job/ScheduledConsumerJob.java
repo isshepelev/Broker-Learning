@@ -1,4 +1,5 @@
 package manufacture.ru.brokerlearning.job;
+import manufacture.ru.brokerlearning.config.UserSessionHelper;
 
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -75,7 +76,7 @@ public class ScheduledConsumerJob {
     private void pollLoop(String sid, ConsumerState s) {
         Properties props = new Properties();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, "job-consumer-group-" + sid);
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, UserSessionHelper.isAdminSid(sid) ? "job-consumer-group" : "job-consumer-group-" + sid);
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
@@ -83,7 +84,7 @@ public class ScheduledConsumerJob {
 
         try (KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props)) {
             s.consumer = consumer;
-            consumer.subscribe(List.of("metrics-topic-" + sid));
+            consumer.subscribe(List.of(UserSessionHelper.isAdminSid(sid) ? "metrics-topic" : "metrics-topic-" + sid));
 
             while (s.running.get()) {
                 try {

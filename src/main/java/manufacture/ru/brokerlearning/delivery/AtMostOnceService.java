@@ -1,4 +1,5 @@
 package manufacture.ru.brokerlearning.delivery;
+import manufacture.ru.brokerlearning.config.UserSessionHelper;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,7 +18,7 @@ public class AtMostOnceService {
     private final manufacture.ru.brokerlearning.service.MessageHistoryService historyService;
 
     public Map<String, Object> demonstrate(String sid, int messageCount) {
-        String topic = "at-most-once-" + sid;
+        String topic = UserSessionHelper.isAdminSid(sid) ? "at-most-once-topic" : "at-most-once-" + sid;
         Map<String, Object> results = new HashMap<>();
         int sent = 0;
 

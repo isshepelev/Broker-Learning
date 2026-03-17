@@ -51,3 +51,8 @@ server:
   servlet:
     session:
       timeout: 60m
+
+app:
+  admin:
+    username: admin
+    password: admin

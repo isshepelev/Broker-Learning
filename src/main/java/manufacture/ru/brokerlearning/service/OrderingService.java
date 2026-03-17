@@ -1,4 +1,5 @@
 package manufacture.ru.brokerlearning.service;
+import manufacture.ru.brokerlearning.config.UserSessionHelper;
 
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -37,8 +38,8 @@ public class OrderingService {
         this.bootstrapServers = bs instanceof String ? (String) bs : String.join(",", (java.util.Collection<String>) bs);
     }
 
-    private String topic1p(String sid) { return TOPIC_1P_PREFIX + sid; }
-    private String topic5p(String sid) { return TOPIC_5P_PREFIX + sid; }
+    private String topic1p(String sid) { return UserSessionHelper.isAdminSid(sid) ? "ordering-1p-topic" : TOPIC_1P_PREFIX + sid; }
+    private String topic5p(String sid) { return UserSessionHelper.isAdminSid(sid) ? "ordering-5p-topic" : TOPIC_5P_PREFIX + sid; }
 
     public Map<String, Object> getLastResult(String sid) {
         return lastResults.get(sid);
