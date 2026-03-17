@@ -9,14 +9,22 @@ import manufacture.ru.brokerlearning.repository.UserResourceRepository;
 import manufacture.ru.brokerlearning.service.DynamicConsumerService;
 import manufacture.ru.brokerlearning.service.KafkaAdminService;
 import manufacture.ru.brokerlearning.service.MessageHistoryService;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.serialization.StringDeserializer;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
 
 @Controller
 @RequestMapping("/consumer")
@@ -29,6 +37,9 @@ public class ConsumerController {
     private final KafkaAdminService kafkaAdminService;
     private final UserSessionHelper sessionHelper;
     private final UserResourceRepository resourceRepository;
+
+    @Value("${spring.kafka.bootstrap-servers}")
+    private String bootstrapServers;
 
     @GetMapping("")
     public String consumerPage(Model model) {
@@ -131,5 +142,86 @@ public class ConsumerController {
     @ResponseBody
     public Set<Integer> getConsumerPartitions(@RequestParam String consumerName) {
         return dynamicConsumerService.getPartitions(consumerName);
+    }
+
+    /** Возвращает количество партиций для указанного топика */
+    @GetMapping("/topic-partitions")
+    @ResponseBody
+    public Map<String, Object> getTopicPartitions(@RequestParam String topic) {
+        try {
+            var info = kafkaAdminService.getTopicInfo(topic);
+            return Map.of("topic", topic, "partitions", info.getPartitions());
+        } catch (Exception e) {
+            return Map.of("error", e.getMessage());
+        }
+    }
+
+    /** Читает сообщения из конкретного топика, опционально из конкретной партиции */
+    @GetMapping("/topic-messages")
+    @ResponseBody
+    public Map<String, Object> getTopicMessages(@RequestParam String topic,
+                                                @RequestParam(required = false) Integer partition,
+                                                @RequestParam(defaultValue = "200") int limit) {
+        // Проверяем ownership
+        String sid = sessionHelper.currentSid();
+        Set<String> userTopics = resourceRepository.topicNamesForUser(sid);
+        if (!userTopics.contains(topic)) {
+            return Map.of("success", false, "error", "Топик не принадлежит вам");
+        }
+
+        Map<String, Object> result = new HashMap<>();
+        List<Map<String, Object>> messages = new ArrayList<>();
+
+        Properties props = new Properties();
+        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, "_browse-" + System.currentTimeMillis());
+        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
+        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
+        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
+        props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, String.valueOf(Math.min(limit, 500)));
+
+        DateTimeFormatter timeFmt = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
+                .withZone(ZoneId.systemDefault());
+
+        try (KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props)) {
+            List<TopicPartition> partitions;
+            if (partition != null) {
+                partitions = List.of(new TopicPartition(topic, partition));
+            } else {
+                partitions = consumer.partitionsFor(topic).stream()
+                        .map(pi -> new TopicPartition(pi.topic(), pi.partition()))
+                        .toList();
+            }
+            consumer.assign(partitions);
+            consumer.seekToBeginning(partitions);
+
+            int collected = 0;
+            int emptyPolls = 0;
+            while (collected < limit && emptyPolls < 2) {
+                ConsumerRecords<String, String> records = consumer.poll(Duration.ofSeconds(2));
+                if (records.isEmpty()) { emptyPolls++; continue; }
+                for (ConsumerRecord<String, String> record : records) {
+                    if (collected >= limit) break;
+                    Map<String, Object> msg = new LinkedHashMap<>();
+                    msg.put("offset", record.offset());
+                    msg.put("partition", record.partition());
+                    msg.put("key", record.key() != null ? record.key() : "");
+                    msg.put("value", record.value() != null ? record.value() : "");
+                    msg.put("timestamp", timeFmt.format(Instant.ofEpochMilli(record.timestamp())));
+                    messages.add(msg);
+                    collected++;
+                }
+            }
+            result.put("success", true);
+            result.put("messages", messages);
+            result.put("count", messages.size());
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("error", e.getMessage());
+            result.put("messages", List.of());
+            result.put("count", 0);
+        }
+        return result;
     }
 }

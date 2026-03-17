@@ -106,6 +106,47 @@
         </div>
     </div>
 
+    <!-- Просмотр сообщений в топике -->
+    <div class="card mt-4">
+        <div class="card-header bg-white">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <h5 class="mb-0" style="font-size: 1rem;">Просмотр сообщений в топике</h5>
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <select class="form-select form-select-sm" id="browseTopic" style="width:auto;min-width:180px;" onchange="onBrowseTopicChange()">
+                        <option value="" disabled selected>Выберите топик...</option>
+                    </select>
+                    <select class="form-select form-select-sm" id="browsePartition" style="width:auto;min-width:140px;" onchange="loadBrowseMessages()">
+                        <option value="__all__">Все партиции</option>
+                    </select>
+                    <button class="btn btn-sm btn-outline-custom" onclick="loadBrowseMessages()">Загрузить</button>
+                    <small class="text-muted" id="browseCount"></small>
+                </div>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            <div id="browseEmpty" class="p-4 text-center">
+                <p class="text-muted mb-0">Выберите топик для просмотра сообщений</p>
+            </div>
+            <div id="browseLoading" class="p-4 text-center" style="display:none;">
+                <span class="spinner-border spinner-border-sm me-2"></span> Загрузка...
+            </div>
+            <div id="browseWrap" class="table-responsive" style="max-height:500px;overflow-y:auto;display:none;">
+                <table class="table table-hover table-sm mb-0">
+                    <thead style="position:sticky;top:0;">
+                    <tr>
+                        <th style="width:60px;">Offset</th>
+                        <th style="width:30px;">P</th>
+                        <th>Key</th>
+                        <th>Value</th>
+                        <th style="width:110px;">Время</th>
+                    </tr>
+                    </thead>
+                    <tbody id="browseBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
     <!-- Существующие Consumer Groups -->
     <div class="card mt-4">
         <div class="card-header bg-white d-flex justify-content-between align-items-center">
@@ -634,6 +675,93 @@
         loadDynamicMessages();
     }, 2000);
     setInterval(loadExistingGroups, 5000);
+
+    // ═══════ Browse topic messages ═══════
+
+    async function loadBrowseTopics() {
+        try {
+            const resp = await fetch('/consumer/topics');
+            const topics = await resp.json();
+            const sel = document.getElementById('browseTopic');
+            const prev = sel.value;
+            sel.innerHTML = '<option value="" disabled selected>Выберите топик...</option>';
+            (Array.isArray(topics) ? topics : []).sort().forEach(function(t) {
+                const opt = document.createElement('option');
+                opt.value = t; opt.textContent = t;
+                if (t === prev) opt.selected = true;
+                sel.appendChild(opt);
+            });
+        } catch (err) {}
+    }
+
+    async function onBrowseTopicChange() {
+        const topic = document.getElementById('browseTopic').value;
+        if (!topic) return;
+        const pSel = document.getElementById('browsePartition');
+        pSel.innerHTML = '<option value="__all__">Все партиции</option>';
+        try {
+            const resp = await fetch('/consumer/topic-partitions?topic=' + encodeURIComponent(topic));
+            const data = await resp.json();
+            if (data.partitions) {
+                for (let i = 0; i < data.partitions; i++) {
+                    const opt = document.createElement('option');
+                    opt.value = i; opt.textContent = 'Partition ' + i;
+                    pSel.appendChild(opt);
+                }
+            }
+        } catch (err) {}
+        loadBrowseMessages();
+    }
+
+    async function loadBrowseMessages() {
+        const topic = document.getElementById('browseTopic').value;
+        if (!topic) return;
+
+        const partition = document.getElementById('browsePartition').value;
+        let url = '/consumer/topic-messages?topic=' + encodeURIComponent(topic) + '&limit=200';
+        if (partition !== '__all__') url += '&partition=' + partition;
+
+        document.getElementById('browseEmpty').style.display = 'none';
+        document.getElementById('browseLoading').style.display = '';
+        document.getElementById('browseWrap').style.display = 'none';
+
+        try {
+            const resp = await fetch(url);
+            const data = await resp.json();
+            const msgs = data.messages || [];
+
+            document.getElementById('browseLoading').style.display = 'none';
+            document.getElementById('browseCount').textContent = msgs.length + ' сообщений';
+
+            if (msgs.length === 0) {
+                document.getElementById('browseEmpty').style.display = '';
+                document.getElementById('browseEmpty').innerHTML = '<p class="text-muted mb-0">Нет сообщений' + (partition !== '__all__' ? ' в partition ' + partition : '') + '</p>';
+                return;
+            }
+
+            document.getElementById('browseWrap').style.display = '';
+            const tbody = document.getElementById('browseBody');
+            tbody.innerHTML = '';
+            msgs.forEach(function(m) {
+                const tr = document.createElement('tr');
+                const val = m.value || '';
+                const valShort = val.length > 80 ? val.substring(0, 80) + '...' : val;
+                tr.innerHTML =
+                    '<td><strong>' + m.offset + '</strong></td>' +
+                    '<td><span class="partition-badge">P' + m.partition + '</span></td>' +
+                    '<td style="font-family:monospace;font-size:.8rem;color:var(--c-text-muted);">' + (m.key || '-') + '</td>' +
+                    '<td style="font-size:.85rem;" title="' + val.replace(/"/g, '&quot;') + '">' + valShort + '</td>' +
+                    '<td style="font-size:.78rem;color:var(--c-text-muted);white-space:nowrap;">' + (m.timestamp || '') + '</td>';
+                tbody.appendChild(tr);
+            });
+        } catch (err) {
+            document.getElementById('browseLoading').style.display = 'none';
+            document.getElementById('browseEmpty').style.display = '';
+            document.getElementById('browseEmpty').innerHTML = '<p class="text-danger mb-0">Ошибка: ' + err.message + '</p>';
+        }
+    }
+
+    loadBrowseTopics();
 </script>
 </body>
 </html>
