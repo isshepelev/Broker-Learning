@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import manufacture.ru.brokerlearning.config.UserSessionHelper;
 import manufacture.ru.brokerlearning.model.UserResource;
 import manufacture.ru.brokerlearning.repository.UserResourceRepository;
+import manufacture.ru.brokerlearning.service.GroupConsumerDemoService;
 import manufacture.ru.brokerlearning.service.ReplayPracticeService;
 import manufacture.ru.brokerlearning.service.ReplayService;
 import org.springframework.stereotype.Controller;
@@ -24,6 +25,7 @@ public class ReplayController {
 
     private final ReplayService replayService;
     private final ReplayPracticeService practiceService;
+    private final GroupConsumerDemoService groupDemoService;
     private final UserSessionHelper sessionHelper;
     private final UserResourceRepository resourceRepository;
 
@@ -207,5 +209,50 @@ public class ReplayController {
     @ResponseBody
     public Map<String, Object> practiceStatus() {
         return practiceService.getStatus(sessionHelper.currentSid());
+    }
+
+    // ===== Group consumer demo =====
+
+    @PostMapping("/group-demo/start")
+    @ResponseBody
+    public Map<String, Object> groupDemoStart(@RequestBody(required = false) Map<String, Object> request) {
+        String topic = (request != null) ? (String) request.get("topic") : null;
+        return groupDemoService.startSession(sessionHelper.currentSid(), topic);
+    }
+
+    @PostMapping("/group-demo/end")
+    @ResponseBody
+    public Map<String, Object> groupDemoEnd() {
+        return groupDemoService.endSession(sessionHelper.currentSid());
+    }
+
+    @PostMapping("/group-demo/add-consumer")
+    @ResponseBody
+    public Map<String, Object> groupDemoAddConsumer() {
+        return groupDemoService.addConsumer(sessionHelper.currentSid());
+    }
+
+    @PostMapping("/group-demo/remove-consumer")
+    @ResponseBody
+    public Map<String, Object> groupDemoRemoveConsumer() {
+        return groupDemoService.removeConsumer(sessionHelper.currentSid());
+    }
+
+    @PostMapping("/group-demo/send")
+    @ResponseBody
+    public Map<String, Object> groupDemoSend(@RequestBody Map<String, Object> request) {
+        String sid = sessionHelper.currentSid();
+        String customMessage = (String) request.get("customMessage");
+        if (customMessage != null && !customMessage.isBlank()) {
+            return groupDemoService.sendCustomMessage(sid, customMessage);
+        }
+        int count = request.containsKey("count") ? ((Number) request.get("count")).intValue() : 5;
+        return groupDemoService.sendMessages(sid, count);
+    }
+
+    @GetMapping("/group-demo/status")
+    @ResponseBody
+    public Map<String, Object> groupDemoStatus() {
+        return groupDemoService.getStatus(sessionHelper.currentSid());
     }
 }

@@ -38,7 +38,9 @@ public final class InternalKafkaRegistry {
             "compression-",
             "metrics-topic-", "job-consumer-group-",
             "at-most-once-", "at-least-once-", "exactly-once-",
-            "benchmark-topic-"
+            "benchmark-topic-",
+            "group-demo-topic-", "group-demo-group-",
+            "group-demo-topic", "group-demo-group"
     );
 
     public static boolean isInternalTopic(String topic) {
