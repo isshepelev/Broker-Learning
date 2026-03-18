@@ -14,6 +14,7 @@ import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 
+import java.security.Principal;
 import java.util.*;
 
 @Controller
@@ -34,6 +35,7 @@ public class AdminController {
     private final OrderingService orderingService;
     private final JobManagementService jobManagementService;
     private final DynamicConsumerService dynamicConsumerService;
+    private final AppUserService appUserService;
 
     @GetMapping("")
     public String adminPage(Model model) {
@@ -103,6 +105,22 @@ public class AdminController {
 
         log.info("Admin deleted user {} (sid={}): {}", user.getUsername(), sid, actions);
         return Map.of("success", true, "actions", actions);
+    }
+
+    @PostMapping("/change-password")
+    @ResponseBody
+    public Map<String, Object> changePassword(@RequestBody Map<String, String> body, Principal principal) {
+        try {
+            String currentPassword = body.get("currentPassword");
+            String newPassword = body.get("newPassword");
+            if (newPassword == null || newPassword.length() < 4) {
+                return Map.of("error", "Новый пароль должен быть не менее 4 символов");
+            }
+            appUserService.changePassword(principal.getName(), currentPassword, newPassword);
+            return Map.of("success", true);
+        } catch (IllegalArgumentException e) {
+            return Map.of("error", e.getMessage());
+        }
     }
 
     private void cleanupUserResources(String sid, List<String> actions) {

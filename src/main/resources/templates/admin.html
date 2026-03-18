@@ -13,6 +13,29 @@
 
     <div id="alertArea" style="display:none;" class="mb-4"></div>
 
+    <div class="card mb-4">
+        <div class="card-header bg-white">
+            <h5 class="mb-0" style="font-size:1rem;">Смена пароля администратора</h5>
+        </div>
+        <div class="card-body">
+            <form id="changePasswordForm" style="max-width:400px;">
+                <div class="mb-2">
+                    <label class="form-label" style="font-size:.85rem;">Текущий пароль</label>
+                    <input type="password" class="form-control form-control-sm" id="currentPassword" required>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label" style="font-size:.85rem;">Новый пароль</label>
+                    <input type="password" class="form-control form-control-sm" id="newPassword" required minlength="4">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label" style="font-size:.85rem;">Подтверждение нового пароля</label>
+                    <input type="password" class="form-control form-control-sm" id="confirmPassword" required minlength="4">
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm">Сменить пароль</button>
+            </form>
+        </div>
+    </div>
+
     <div class="card">
         <div class="card-header bg-white">
             <h5 class="mb-0" style="font-size:1rem;">Пользователи</h5>
@@ -70,6 +93,31 @@
         a.style.display = '';
         setTimeout(function() { a.style.display = 'none'; }, 5000);
     }
+
+    document.getElementById('changePasswordForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const currentPassword = document.getElementById('currentPassword').value;
+        const newPassword = document.getElementById('newPassword').value;
+        const confirmPassword = document.getElementById('confirmPassword').value;
+        if (newPassword !== confirmPassword) {
+            showAlert('danger', 'Пароли не совпадают');
+            return;
+        }
+        try {
+            const resp = await fetch('/admin/change-password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ currentPassword, newPassword })
+            });
+            const data = await resp.json();
+            if (data.success) {
+                showAlert('success', 'Пароль успешно изменён');
+                this.reset();
+            } else {
+                showAlert('danger', data.error || 'Ошибка');
+            }
+        } catch (err) { showAlert('danger', err.message); }
+    });
 
     document.addEventListener('click', function(e) {
         const btn = e.target.closest('.admin-action-btn');

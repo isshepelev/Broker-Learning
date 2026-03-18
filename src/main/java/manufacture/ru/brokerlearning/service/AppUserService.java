@@ -74,6 +74,17 @@ public class AppUserService implements UserDetailsService {
         return userRepository.findAll();
     }
 
+    public void changePassword(String username, String currentPassword, String newPassword) {
+        AppUser user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new IllegalArgumentException("Пользователь не найден"));
+        if (!passwordEncoder.matches(currentPassword, user.getPassword())) {
+            throw new IllegalArgumentException("Неверный текущий пароль");
+        }
+        user.setPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+        log.info("Password changed for user '{}'", username);
+    }
+
     public String getSid(String username) {
         return userRepository.findByUsername(username)
                 .map(AppUser::getSid)
